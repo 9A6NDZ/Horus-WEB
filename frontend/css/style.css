@@ -1,0 +1,883 @@
+/* Custom tweaks povrh Tailwinda */
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ====================================================================
+   Sakrij strelice (spinnere) na number input poljima
+   (lat/lon, visina antene, frekvencija, port itd.)
+   ==================================================================== */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ====================================================================
+   Leaflet dark mode tweaks
+   Dark filter se aktivira SAMO kad <body> ima klasu 'map-dark-filter'.
+   Klasa se postavlja iz map.js ovisno o odabranom sloju:
+     Street  -> filter AKTIVAN (OSM je po defaultu svijetao)
+     ostali  -> bez filtera (Satellite, Terrain, Dark, Light, Hybrid ostaju u originalnim bojama)
+   ==================================================================== */
+.leaflet-container {
+  background: #0f172a;
+}
+
+body.map-dark-filter .leaflet-tile {
+  filter: brightness(0.7) invert(1) contrast(0.9) hue-rotate(200deg) saturate(0.4);
+}
+
+body.map-dark-filter.weather-active .leaflet-tile-pane > .leaflet-layer:first-child .leaflet-tile {
+  filter: brightness(1.00) invert(1) contrast(0.8) hue-rotate(200deg) saturate(0.3);
+}
+
+body.weather-active .leaflet-tile-pane > .leaflet-layer:not(:first-child) .leaflet-tile {
+  filter: none !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(15, 23, 42, 0.8) !important;
+  color: #94a3b8 !important;
+}
+.leaflet-control-attribution a {
+  color: #60a5fa !important;
+}
+
+.leaflet-control-zoom a {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+  border-color: #334155 !important;
+}
+.leaflet-control-zoom a:hover {
+  background: #334155 !important;
+}
+
+/* ====================================================================
+   LAYER SWITCHER KONTROLA (gore desno na karti)
+   ==================================================================== */
+.leaflet-control-layers {
+  background: rgba(15, 23, 42, 0.95) !important;
+  color: #e2e8f0 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+.leaflet-control-layers-toggle {
+  background-color: #1e293b !important;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polygon points='12 2 2 7 12 12 22 7 12 2'/><polyline points='2 17 12 22 22 17'/><polyline points='2 12 12 17 22 12'/></svg>") !important;
+  background-size: 20px 20px !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  border-radius: 6px !important;
+  width: 36px !important;
+  height: 36px !important;
+}
+
+.leaflet-control-layers-expanded {
+  padding: 10px 14px !important;
+  min-width: 160px !important;
+}
+
+.leaflet-control-layers-list label {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  cursor: pointer !important;
+  padding: 4px 0 !important;
+  font-size: 13px !important;
+  color: #cbd5e1 !important;
+}
+
+.leaflet-control-layers-list label:hover {
+  color: #60a5fa !important;
+}
+
+.leaflet-control-layers-list input[type="radio"],
+.leaflet-control-layers-list input[type="checkbox"] {
+  accent-color: #3b82f6 !important;
+  margin-right: 4px !important;
+}
+
+.leaflet-control-layers-separator {
+  border-top-color: #334155 !important;
+}
+
+/* Naslov iznad liste slojeva */
+.leaflet-control-layers-base::before {
+  content: attr(data-layer-title);
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #334155;
+}
+
+/* ====================================================================
+   SVG BALON IKONE
+   filter: none !important -> dark filter NE utječe na balone (ostaju u svojim bojama)
+   overflow: visible !important -> label iznad balona nije odrezan
+   ==================================================================== */
+.horus-balloon-icon,
+.horus-balloon-icon svg {
+  filter: none !important;
+  overflow: visible !important;
+  pointer-events: auto;
+}
+
+.horus-balloon-icon svg {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)) !important;
+}
+
+.launch-icon {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
+
+.station-icon {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+}
+
+.balloon-horizon-label {
+  filter: none !important;
+}
+
+/* ====================================================================
+   Konzola scrollbar
+   ==================================================================== */
+#console::-webkit-scrollbar {
+  width: 8px;
+}
+#console::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+#console::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+/* Faza leta - boje za status badge */
+.phase-pre_launch { background-color: #475569; color: #e2e8f0; }
+.phase-ascent     { background-color: #065f46; color: #a7f3d0; }
+.phase-burst      { background-color: #9a3412; color: #fed7aa; }
+.phase-descent    { background-color: #92400e; color: #fde68a; }
+.phase-landed     { background-color: #1e3a8a; color: #bfdbfe; }
+
+/* Konzola log level boje */
+.log-INFO  { color: #cbd5e1; }
+.log-WARN  { color: #fbbf24; }
+.log-ERROR { color: #f87171; }
+.log-DEBUG { color: #64748b; }
+
+/* Pulse animacija za connected status */
+.pulse-green {
+  animation: pulse-green 2s infinite;
+}
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Subtle hover efekti */
+.kpi-card {
+  transition: transform 0.15s ease;
+}
+.kpi-card:hover {
+  transform: translateY(-1px);
+}
+
+/* ====================================================================
+   Alert toast animacija (slide-in s desne strane)
+   ==================================================================== */
+@keyframes alert-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.animate-slide-in {
+  animation: alert-slide-in 0.3s ease-out;
+}
+
+/* ====================================================================
+   WEATHER LEGEND KONTROLA (dolje lijevo na karti)
+   ==================================================================== */
+.weather-legend-control {
+  pointer-events: auto;
+  z-index: 800;
+}
+
+.weather-legend-box {
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 10px 14px 8px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  min-width: 180px;
+  max-width: 260px;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.weather-legend-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+.weather-legend-unit {
+  font-weight: 400;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.weather-legend-bar {
+  height: 12px;
+  border-radius: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  width: 100%;
+}
+
+.weather-legend-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.weather-legend-tick {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ====================================================================
+   METAR STANICE — ikone na karti
+   ==================================================================== */
+.metar-icon {
+  background: none !important;
+  border: none !important;
+}
+
+.metar-marker {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transform: translate(-4px, -4px);
+  pointer-events: auto;
+}
+
+.metar-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,0.6);
+  box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  flex-shrink: 0;
+}
+
+.metar-label {
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid #334155;
+  border-radius: 5px;
+  padding: 2px 6px;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+.metar-id {
+  font-size: 10px;
+  font-weight: 700;
+  color: #e2e8f0;
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  letter-spacing: 0.5px;
+}
+
+.metar-ceil {
+  font-size: 9px;
+  font-weight: 600;
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+}
+
+/* Pulsiranje za niske oblake (opasnost za balon) */
+.metar-low .metar-dot {
+  animation: metar-pulse-red 2s infinite;
+}
+@keyframes metar-pulse-red {
+  0%, 100% { box-shadow: 0 0 4px rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.8); }
+}
+
+/* ====================================================================
+   METAR POPUP — detaljan prikaz podataka
+   ==================================================================== */
+.metar-popup-container .leaflet-popup-content-wrapper {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid #334155 !important;
+  border-radius: 12px !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+  backdrop-filter: blur(10px);
+}
+.metar-popup-container .leaflet-popup-tip {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid #334155 !important;
+}
+.metar-popup-container .leaflet-popup-close-button {
+  color: #94a3b8 !important;
+  font-size: 18px !important;
+}
+.metar-popup-container .leaflet-popup-close-button:hover {
+  color: #e2e8f0 !important;
+}
+
+.metar-popup {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  min-width: 240px;
+}
+
+.metar-popup-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.metar-popup-icao {
+  font-size: 16px;
+  font-weight: 800;
+  color: #3b82f6;
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  letter-spacing: 1px;
+}
+
+.metar-popup-name {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.metar-obs-time {
+  font-size: 10px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.metar-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 6px;
+  margin-bottom: 3px;
+}
+
+.metar-clouds {
+  margin-bottom: 8px;
+}
+
+.metar-cloud-row {
+  font-size: 12px;
+  color: #cbd5e1;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+}
+.metar-cloud-row:last-child {
+  border-bottom: none;
+}
+
+.metar-cb {
+  color: #ef4444;
+  font-weight: 700;
+}
+
+.metar-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+}
+
+.metar-key {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.metar-val {
+  color: #e2e8f0;
+  font-weight: 600;
+  font-size: 11px;
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  text-align: right;
+}
+
+.metar-raw {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: rgba(30, 41, 59, 0.7);
+  border-radius: 6px;
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  font-size: 10px;
+  color: #64748b;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+/* Dark filter ne utječe na METAR markere */
+body.map-dark-filter .metar-marker,
+body.map-dark-filter .metar-dot,
+body.map-dark-filter .metar-label {
+  filter: none !important;
+}
+
+/* ====================================================================
+   THEME TOGGLE BUTTON
+   ==================================================================== */
+.theme-toggle-btn {
+  position: relative;
+}
+
+/* ====================================================================
+   LIGHT THEME OVERRIDES
+   Aktivira se kad <body> ima data-theme="light"
+   ==================================================================== */
+body[data-theme="light"] {
+  background-color: #f1f5f9 !important; /* slate-100 */
+  color: #1e293b !important;            /* slate-800 */
+}
+
+/* Header */
+body[data-theme="light"] header {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-bottom-color: #cbd5e1 !important;
+}
+body[data-theme="light"] header h1 {
+  color: #0f172a !important;
+}
+body[data-theme="light"] header p {
+  color: #64748b !important;
+}
+
+/* Kartice / Paneli */
+body[data-theme="light"] .bg-slate-900 {
+  background-color: #ffffff !important;
+}
+body[data-theme="light"] .bg-slate-950 {
+  background-color: #f1f5f9 !important;
+}
+body[data-theme="light"] .border-slate-800,
+body[data-theme="light"] .border-slate-700 {
+  border-color: #cbd5e1 !important;
+}
+
+/* Tekst boje */
+body[data-theme="light"] .text-slate-100 {
+  color: #1e293b !important;
+}
+body[data-theme="light"] .text-slate-200 {
+  color: #334155 !important;
+}
+body[data-theme="light"] .text-slate-300 {
+  color: #475569 !important;
+}
+body[data-theme="light"] .text-slate-400 {
+  color: #64748b !important;
+}
+body[data-theme="light"] .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+/* Input / Select polja */
+body[data-theme="light"] .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+}
+body[data-theme="light"] select,
+body[data-theme="light"] input[type="text"],
+body[data-theme="light"] input[type="number"],
+body[data-theme="light"] input[type="password"],
+body[data-theme="light"] textarea {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+}
+body[data-theme="light"] select option {
+  background-color: #ffffff;
+  color: #1e293b;
+}
+
+/* Hover state na karticama i buttonima */
+body[data-theme="light"] .hover\:bg-slate-800:hover {
+  background-color: #e2e8f0 !important;
+}
+body[data-theme="light"] .hover\:bg-slate-700:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Konzola */
+body[data-theme="light"] #console {
+  background-color: #f8fafc !important;
+  color: #334155 !important;
+}
+body[data-theme="light"] #console::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+body[data-theme="light"] #console::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+body[data-theme="light"] .log-INFO {
+  color: #475569 !important;
+}
+body[data-theme="light"] .log-DEBUG {
+  color: #94a3b8 !important;
+}
+
+/* Karta */
+body[data-theme="light"] .leaflet-container {
+  background: #e2e8f0 !important;
+}
+body[data-theme="light"] .leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.85) !important;
+  color: #64748b !important;
+}
+body[data-theme="light"] .leaflet-control-zoom a {
+  background: #ffffff !important;
+  color: #334155 !important;
+  border-color: #cbd5e1 !important;
+}
+body[data-theme="light"] .leaflet-control-zoom a:hover {
+  background: #f1f5f9 !important;
+}
+
+/* Layer switcher — light */
+body[data-theme="light"] .leaflet-control-layers {
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+body[data-theme="light"] .leaflet-control-layers-toggle {
+  background-color: #ffffff !important;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polygon points='12 2 2 7 12 12 22 7 12 2'/><polyline points='2 17 12 22 22 17'/><polyline points='2 12 12 17 22 12'/></svg>") !important;
+}
+body[data-theme="light"] .leaflet-control-layers-list label {
+  color: #475569 !important;
+}
+body[data-theme="light"] .leaflet-control-layers-list label:hover {
+  color: #2563eb !important;
+}
+body[data-theme="light"] .leaflet-control-layers-separator {
+  border-top-color: #e2e8f0 !important;
+}
+body[data-theme="light"] .leaflet-control-layers-base::before {
+  color: #94a3b8 !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+
+/* Settings modal — light */
+body[data-theme="light"] #settingsModal > div {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+body[data-theme="light"] #settingsModal .bg-slate-900 {
+  background-color: #ffffff !important;
+}
+body[data-theme="light"] #settingsModal .border-slate-800,
+body[data-theme="light"] #settingsModal .border-b {
+  border-color: #e2e8f0 !important;
+}
+
+/* Folder browser modal — light */
+body[data-theme="light"] #folderBrowserModal > div {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* About modal — light */
+body[data-theme="light"] #aboutModal > div {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+body[data-theme="light"] #aboutModal .border-slate-800,
+body[data-theme="light"] #aboutModal .border-b,
+body[data-theme="light"] #aboutModal .border-t {
+  border-color: #e2e8f0 !important;
+}
+body[data-theme="light"] #aboutModal .text-white {
+  color: #1e293b !important;
+}
+body[data-theme="light"] #aboutModal .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+}
+body[data-theme="light"] #aboutModal .hover\:bg-slate-700:hover {
+  background-color: #e2e8f0 !important;
+}
+body[data-theme="light"] #aboutModal .border-slate-700 {
+  border-color: #cbd5e1 !important;
+}
+
+/* Weather legend — light */
+body[data-theme="light"] .weather-legend-box {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1) !important;
+}
+body[data-theme="light"] .weather-legend-title {
+  color: #1e293b !important;
+}
+body[data-theme="light"] .weather-legend-unit {
+  color: #64748b !important;
+}
+body[data-theme="light"] .weather-legend-tick {
+  color: #64748b !important;
+}
+
+/* METAR label — light */
+body[data-theme="light"] .metar-label {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+}
+body[data-theme="light"] .metar-id {
+  color: #1e293b !important;
+}
+
+/* METAR popup — light */
+body[data-theme="light"] .metar-popup-container .leaflet-popup-content-wrapper {
+  background: rgba(255, 255, 255, 0.97) !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
+}
+body[data-theme="light"] .metar-popup-container .leaflet-popup-tip {
+  background: rgba(255, 255, 255, 0.97) !important;
+  border-color: #cbd5e1 !important;
+}
+body[data-theme="light"] .metar-popup-container .leaflet-popup-close-button {
+  color: #64748b !important;
+}
+body[data-theme="light"] .metar-val {
+  color: #1e293b !important;
+}
+body[data-theme="light"] .metar-key {
+  color: #64748b !important;
+}
+body[data-theme="light"] .metar-cloud-row {
+  color: #334155 !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+body[data-theme="light"] .metar-raw {
+  background: rgba(241, 245, 249, 0.8) !important;
+  color: #64748b !important;
+}
+body[data-theme="light"] .metar-section-title {
+  color: #94a3b8 !important;
+}
+body[data-theme="light"] .metar-row {
+  border-bottom-color: #e2e8f0 !important;
+}
+body[data-theme="light"] .metar-obs-time {
+  color: #94a3b8 !important;
+}
+
+/* KPI kartice — light */
+body[data-theme="light"] .kpi-card {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Divider linije */
+body[data-theme="light"] .divide-slate-800 > * + * {
+  border-color: #e2e8f0 !important;
+}
+
+/* Disabled map dark filter u light temi */
+body[data-theme="light"].map-dark-filter .leaflet-tile {
+  filter: none !important;
+}
+body[data-theme="light"].map-dark-filter.weather-active .leaflet-tile-pane > .leaflet-layer:first-child .leaflet-tile {
+  filter: none !important;
+}
+
+/* Chart.js canvas parent containers */
+body[data-theme="light"] canvas {
+  filter: none;
+}
+
+/* Spectrum vizualizacija */
+body[data-theme="light"] #spectrumCanvas {
+  border-color: #cbd5e1 !important;
+}
+
+/* Alert toast — light */
+body[data-theme="light"] .bg-red-900\/80 {
+  background-color: rgba(254, 226, 226, 0.9) !important;
+  color: #991b1b !important;
+}
+body[data-theme="light"] .bg-amber-900\/80 {
+  background-color: rgba(254, 243, 199, 0.9) !important;
+  color: #92400e !important;
+}
+
+/* bg-black/70 overlay — ostaje tamno i u light temi */
+
+/* Scrollbar — light */
+body[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+body[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+/* Phase badges ostaju iste (imaju vlastite boje) */
+
+/* Faza leta status boje za panele */
+body[data-theme="light"] .bg-slate-800\/50 {
+  background-color: rgba(241, 245, 249, 0.7) !important;
+}
+
+/* Rounded xl paneli s borderom */
+body[data-theme="light"] .rounded-xl.border {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* Focus ring boja — ostaje brand-500 */
+
+/* ====================================================================
+   LIGHT THEME — dodatni overrides
+   ==================================================================== */
+
+/* Zadnji paket panel — gradient background */
+body[data-theme="light"] .bg-gradient-to-br.from-slate-900 {
+  background: #ffffff !important;
+  --tw-gradient-from: #ffffff !important;
+  --tw-gradient-to: rgba(255,255,255,0.9) !important;
+}
+body[data-theme="light"] .from-slate-900 {
+  --tw-gradient-from: #ffffff !important;
+}
+body[data-theme="light"] .to-slate-900\/70 {
+  --tw-gradient-to: rgba(255,255,255,0.85) !important;
+}
+
+/* Border brand-700/50 na telemetry panelu */
+body[data-theme="light"] .border-brand-700\/50 {
+  border-color: rgba(37, 99, 235, 0.3) !important;
+}
+
+/* Callsign badge */
+body[data-theme="light"] .bg-brand-900\/50 {
+  background-color: rgba(219, 234, 254, 0.7) !important;
+}
+body[data-theme="light"] .text-brand-300 {
+  color: #2563eb !important;
+}
+
+/* Custom fields border */
+body[data-theme="light"] .border-cyan-900\/30 {
+  border-color: rgba(6, 182, 212, 0.2) !important;
+}
+
+/* font-mono font-semibold telemetry values */
+body[data-theme="light"] .font-mono.font-semibold {
+  color: #0f172a !important;
+}
+
+/* Faza leta badge bg-slate-800 */
+body[data-theme="light"] #flightPhase {
+  background-color: #e2e8f0 !important;
+  color: #334155 !important;
+}
+
+/* Reset flight button */
+body[data-theme="light"] .bg-red-600\/20 {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+}
+body[data-theme="light"] .hover\:bg-red-600\/40:hover {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+}
+body[data-theme="light"] .text-red-400 {
+  color: #dc2626 !important;
+}
+
+/* Collapsible panel toggle buttons */
+body[data-theme="light"] .hover\:bg-slate-700:hover {
+  background-color: #e2e8f0 !important;
+}
+body[data-theme="light"] .collapsible-toggle-btn {
+  color: #94a3b8 !important;
+}
+body[data-theme="light"] .collapsible-toggle-btn:hover {
+  color: #475569 !important;
+  background-color: #e2e8f0 !important;
+}
+
+/* bg-black/70 modal overlay — ostaje tamno */
+
+/* KPI bold text */
+body[data-theme="light"] .text-2xl.font-bold {
+  color: #0f172a !important;
+}
+
+/* General text overrides za body children */
+body[data-theme="light"] .font-semibold {
+  color: #1e293b;
+}
+body[data-theme="light"] h2.font-semibold {
+  color: #1e293b !important;
+}
+
+/* Map header border */
+body[data-theme="light"] .border-b.border-slate-800 {
+  border-color: #e2e8f0 !important;
+}
+
+/* bg-slate-900/80 header */
+body[data-theme="light"] .bg-slate-900\/80 {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Spectrum canvas border */
+body[data-theme="light"] .border-slate-700 {
+  border-color: #cbd5e1 !important;
+}
+
+/* Startup program rows & log files info — light */
+body[data-theme="light"] .bg-slate-800\/60 {
+  background-color: rgba(241, 245, 249, 0.7) !important;
+}
+body[data-theme="light"] .border-slate-600 {
+  border-color: #cbd5e1 !important;
+}
+body[data-theme="light"] .border-dashed.border-slate-600 {
+  border-color: #94a3b8 !important;
+}
+body[data-theme="light"] .bg-slate-700 {
+  background-color: #e2e8f0 !important;
+}
+body[data-theme="light"] .hover\:bg-slate-600:hover {
+  background-color: #cbd5e1 !important;
+}
+

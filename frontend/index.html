@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Horus Web — Balloon Telemetry</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50:  '#eff6ff',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              900: '#1e3a8a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <link rel="stylesheet" href="/static/css/style.css" />
+
+  <style>
+    .horus-modal-overlay { z-index: 10000 !important; }
+    header.sticky { z-index: 50; }
+
+    /* Chart panel collapse/expand */
+    .chart-panel-body,
+    .collapsible-panel-body {
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.25s ease, margin-bottom 0.3s ease;
+      max-height: 800px;
+      opacity: 1;
+    }
+    .chart-panel-body.collapsed,
+    .collapsible-panel-body.collapsed {
+      max-height: 0;
+      opacity: 0;
+      margin-bottom: 0 !important;
+    }
+    .chart-panel.collapsed,
+    .collapsible-panel.collapsed {
+      padding-bottom: 0.75rem;
+    }
+    .chart-panel.collapsed h2,
+    .collapsible-panel.collapsed .collapsible-panel-header h2 {
+      margin-bottom: 0 !important;
+    }
+    .collapsible-panel.collapsed .collapsible-panel-header {
+      margin-bottom: 0 !important;
+    }
+    /* Skrivanje border-bottom headera kad je collapsed (za panele s overflow-hidden) */
+    .collapsible-panel.collapsed .collapsible-panel-header {
+      border-bottom-color: transparent !important;
+    }
+    /* Sidebar panel body margin collapses when hidden */
+    .collapsible-panel.collapsed .collapsible-panel-body.mt-3 {
+      margin-top: 0 !important;
+    }
+    .chart-toggle-icon,
+    .collapsible-toggle-icon {
+      transition: transform 0.25s ease;
+    }
+    .chart-panel.collapsed .chart-toggle-icon,
+    .collapsible-panel.collapsed .collapsible-toggle-icon {
+      transform: rotate(180deg);
+    }
+    /* Flight analysis panel needs larger max-height for many charts */
+    .collapsible-panel-body[data-panel-id="flight-analysis"] {
+      max-height: 5000px;
+      transition: max-height 0.4s ease, opacity 0.3s ease, margin-bottom 0.3s ease;
+    }
+    .collapsible-panel-body[data-panel-id="flight-analysis"].collapsed {
+      max-height: 0;
+    }
+  </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+  <!-- TOP BAR -->
+  <header class="bg-slate-900/80 backdrop-blur border-b border-slate-800 sticky top-0">
+    <div class="max-w-screen-2xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
+          <i data-lucide="radio" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-semibold leading-none">Horus Web</h1>
+          <p class="text-xs text-slate-400">Balloon Telemetry Decoder v1.5</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <div id="connStatus" class="flex items-center gap-2 text-xs">
+          <span class="w-2 h-2 rounded-full bg-red-500"></span>
+          <span class="text-slate-400">Disconnected</span>
+        </div>
+
+        <button id="themeToggleBtn"
+          class="theme-toggle-btn p-2 rounded-lg hover:bg-slate-800 transition"
+          title="Promijeni temu" data-i18n-title="header.theme_toggle">
+          <i data-lucide="sun" class="w-5 h-5 theme-icon-light hidden"></i>
+          <i data-lucide="moon" class="w-5 h-5 theme-icon-dark"></i>
+        </button>
+
+        <button id="aboutBtn"
+          class="p-2 rounded-lg hover:bg-slate-800 transition"
+          title="O aplikaciji" data-i18n-title="header.about">
+          <i data-lucide="info" class="w-5 h-5"></i>
+        </button>
+
+        <button id="settingsBtn"
+          class="p-2 rounded-lg hover:bg-slate-800 transition"
+          title="Postavke" data-i18n-title="header.settings">
+          <i data-lucide="settings" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN LAYOUT -->
+  <main class="max-w-screen-2xl mx-auto p-4 grid grid-cols-12 gap-4">
+
+    <!-- LIJEVI SIDEBAR -->
+    <aside class="col-span-12 lg:col-span-3 space-y-4">
+
+      <div class="bg-slate-900 rounded-xl border border-slate-800 p-4">
+        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3" data-i18n="sidebar.decoder">Dekoder</h2>
+        <button id="startStopBtn"
+          class="w-full py-3 rounded-lg bg-brand-600 hover:bg-brand-700 transition font-semibold flex items-center justify-center gap-2">
+          <i data-lucide="play" class="w-5 h-5"></i>
+          <span>Start</span>
+        </button>
+        <div id="decoderStatus" class="mt-3 text-xs text-slate-400" data-i18n="sidebar.ready">Spreman</div>
+      </div>
+
+      <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 collapsible-panel" data-panel-id="sidebar-audio">
+        <div class="flex items-center justify-between cursor-pointer collapsible-panel-header" data-panel-id="sidebar-audio">
+          <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider" data-i18n="sidebar.audio">Audio</h2>
+          <button class="p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="sidebar-audio" title="Minimiziraj/proširi">
+            <i data-lucide="chevron-up" class="w-3.5 h-3.5 collapsible-toggle-icon"></i>
+          </button>
+        </div>
+        <div class="collapsible-panel-body space-y-3 mt-3" data-panel-id="sidebar-audio">
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="sidebar.device">Uređaj</label>
+            <select id="audioDevice" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"></select>
+            <p id="audioDeviceHint" class="text-xs text-slate-500 mt-1 hidden"></p>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="sidebar.sample_rate">Sample rate (Hz)</label>
+            <select id="sampleRate" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
+              <option>48000</option>
+              <option>44100</option>
+              <option>96000</option>
+            </select>
+          </div>
+
+          <!-- Audio Monitor Output -->
+          <div class="border-t border-slate-700 pt-3 mt-1">
+            <div class="flex items-center justify-between">
+              <label class="text-xs text-slate-400 flex items-center gap-1.5">
+                <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+                <span data-i18n="sidebar.audio_monitor">Audio Monitor</span>
+              </label>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="audioMonitorEnabled" class="sr-only peer">
+                <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600 peer-checked:after:bg-white"></div>
+              </label>
+            </div>
+            <div id="audioMonitorFields" class="mt-2 hidden">
+              <label class="text-xs text-slate-400" data-i18n="sidebar.output_device">Output uređaj</label>
+              <select id="audioOutputDevice" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" disabled></select>
+              <p id="audioMonitorHint" class="text-xs text-slate-500 mt-1 hidden"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 collapsible-panel" data-panel-id="sidebar-modem">
+        <div class="flex items-center justify-between cursor-pointer collapsible-panel-header" data-panel-id="sidebar-modem">
+          <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider" data-i18n="sidebar.modem">Modem</h2>
+          <button class="p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="sidebar-modem" title="Minimiziraj/proširi">
+            <i data-lucide="chevron-up" class="w-3.5 h-3.5 collapsible-toggle-icon"></i>
+          </button>
+        </div>
+        <div class="collapsible-panel-body space-y-3 mt-3" data-panel-id="sidebar-modem">
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="sidebar.mode">Mod</label>
+            <select id="modemSelect" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"></select>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="sidebar.baud_rate">Baud rate</label>
+            <select id="baudRate" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 collapsible-panel" data-panel-id="sidebar-station">
+        <div class="flex items-center justify-between cursor-pointer collapsible-panel-header" data-panel-id="sidebar-station">
+          <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider" data-i18n="sidebar.station">Prijemna stanica</h2>
+          <button class="p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="sidebar-station" title="Minimiziraj/proširi">
+            <i data-lucide="chevron-up" class="w-3.5 h-3.5 collapsible-toggle-icon"></i>
+          </button>
+        </div>
+        <div class="collapsible-panel-body space-y-3 mt-3" data-panel-id="sidebar-station">
+
+        <div>
+          <label class="text-xs text-slate-400" data-i18n="sidebar.callsign">Callsign</label>
+          <input id="stationCallsign" type="text" placeholder="9A5XXX" data-i18n-placeholder="sidebar.callsign_placeholder" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="sidebar.lat">Lat</label>
+            <input id="stationLat" type="number" step="0.00001" placeholder="45.815" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+          </div>
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="sidebar.lon">Lon</label>
+            <input id="stationLon" type="number" step="0.00001" placeholder="15.982" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+          </div>
+        </div>
+
+        <div>
+          <label class="text-xs text-slate-400" data-i18n="sidebar.antenna_alt">Visina antene (m)</label>
+          <input id="stationAltitude" type="number" step="1" placeholder="npr. 150" data-i18n-placeholder="sidebar.alt_placeholder" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+          <p class="text-xs text-slate-500 mt-1" data-i18n="sidebar.antenna_alt_hint">Nadmorska visina antene (za horizon rings)</p>
+        </div>
+
+        <div>
+          <label class="text-xs text-slate-400" data-i18n="sidebar.radio">Radio</label>
+          <input id="stationRadio" type="text" placeholder="npr. Yaesu FT-991" data-i18n-placeholder="sidebar.radio_placeholder" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+        </div>
+
+        <div>
+          <label class="text-xs text-slate-400" data-i18n="sidebar.antenna">Antena</label>
+          <input id="stationAntenna" type="text" placeholder="npr. Yagi 5el" data-i18n-placeholder="sidebar.antenna_placeholder" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+        </div>
+
+        <div>
+          <label class="text-xs text-slate-400" data-i18n="sidebar.dial_freq">Radio dial freq (MHz)</label>
+          <input id="stationDialFreq" type="number" step="0.001" placeholder="npr. 437.600" data-i18n-placeholder="sidebar.dial_freq_placeholder" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+          <p class="text-xs text-slate-500 mt-1" data-i18n="sidebar.dial_freq_hint">Frekvencija radija u MHz (za SondeHub)</p>
+        </div>
+
+        <div class="border-t border-slate-800 pt-3">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input id="sondehubEnabled" type="checkbox" class="accent-brand-500 w-4 h-4" />
+            <span class="text-sm" data-i18n="sidebar.sondehub_upload">Upload na SondeHub Amateur</span>
+          </label>
+          <p class="text-xs text-slate-500 mt-1" data-i18n="sidebar.sondehub_hint">Zahtijeva valjani callsign (ne N0CALL)</p>
+        </div>
+
+        <div>
+          <label class="text-xs text-slate-400" data-i18n="sidebar.sondehub_blocklist">SondeHub blocklist callsignova</label>
+          <textarea id="sondehubBlocklist" rows="2" placeholder="npr. 9A6NDZ-TEST, 9A6NDZ-DEV" data-i18n-placeholder="sidebar.blocklist_placeholder" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500 resize-none"></textarea>
+          <p class="text-xs text-slate-500 mt-1" data-i18n="sidebar.sondehub_blocklist_hint">Callsignovi odvojeni zarezom — ovi se NEĆE slati na SondeHub.</p>
+          <p id="blocklistStatus" class="text-xs text-amber-400 mt-1 hidden"></p>
+        </div>
+
+        <button id="saveStationBtn" class="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm" data-i18n="sidebar.save">Spremi</button>
+        <button id="uploadStationBtn" class="w-full py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 transition text-sm flex items-center justify-center gap-2" title="Ručno uploadaj podatke o stanici na SondeHub" data-i18n-title="sidebar.upload_station_hint">
+          <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+          <span data-i18n="sidebar.upload_station">Upload stanice na SondeHub</span>
+        </button>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 collapsible-panel" data-panel-id="sidebar-csv">
+        <div class="flex items-center justify-between cursor-pointer collapsible-panel-header" data-panel-id="sidebar-csv">
+          <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider" data-i18n="sidebar.csv_log">CSV Log</h2>
+          <button class="p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="sidebar-csv" title="Minimiziraj/proširi">
+            <i data-lucide="chevron-up" class="w-3.5 h-3.5 collapsible-toggle-icon"></i>
+          </button>
+        </div>
+        <div class="collapsible-panel-body space-y-3 mt-3" data-panel-id="sidebar-csv">
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="sidebar.select_log">Odaberi log datoteku</label>
+            <select id="csvLogSelect" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
+              <option value="" data-i18n="sidebar.loading">Učitavanje…</option>
+            </select>
+            <p id="logsDirHint" class="text-xs text-slate-500 mt-1 truncate" title="">—</p>
+          </div>
+
+          <button id="refreshLogsBtn" class="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm flex items-center justify-center gap-2">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span data-i18n="sidebar.refresh_list">Osvježi popis</span>
+          </button>
+
+          <button id="loadLogBtn" class="w-full py-2 rounded-lg bg-amber-600 hover:bg-amber-700 transition text-sm flex items-center justify-center gap-2">
+            <i data-lucide="upload" class="w-4 h-4"></i>
+            <span data-i18n="sidebar.load_log">Učitaj log (nastavak leta)</span>
+          </button>
+
+          <button id="downloadCsvBtn" class="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 transition text-sm flex items-center justify-center gap-2">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span data-i18n="sidebar.download_csv">Preuzmi CSV</span>
+          </button>
+
+          <button id="resetFlightBtn" class="w-full py-2 rounded-lg bg-red-600/20 hover:bg-red-600/40 text-red-400 transition text-sm" data-i18n="sidebar.reset_flight">Resetiraj let</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- DESNI SADRŽAJ -->
+    <section class="col-span-12 lg:col-span-9 space-y-4">
+
+      <div class="bg-gradient-to-br from-slate-900 to-slate-900/70 rounded-xl border border-brand-700/50 p-4 shadow-lg collapsible-panel" data-panel-id="telemetry">
+        <div class="flex items-center justify-between mb-3 cursor-pointer collapsible-panel-header" data-panel-id="telemetry">
+          <h2 class="font-semibold flex items-center gap-2">
+            <i data-lucide="database" class="w-5 h-5 text-brand-500"></i>
+            <span data-i18n="telemetry.last_packet">Zadnji paket</span>
+            <span id="tCallsignBadge" class="ml-2 px-2 py-0.5 rounded-md bg-brand-900/50 text-brand-300 text-xs font-mono">—</span>
+            <button class="ml-2 p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="telemetry" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 collapsible-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="text-xs text-slate-500">
+            <span id="tTimeHeader" class="font-mono">—</span>
+          </div>
+        </div>
+        <div class="collapsible-panel-body" data-panel-id="telemetry">
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 text-sm">
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.callsign">Callsign</div><div class="font-mono font-semibold" id="tCallsign">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.time">Vrijeme</div><div class="font-mono font-semibold" id="tTime">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.latitude">Latituda</div><div class="font-mono font-semibold" id="tLat">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.longitude">Longituda</div><div class="font-mono font-semibold" id="tLon">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.satellites">Sateliti</div><div class="font-mono font-semibold" id="tSats">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.battery">Baterija</div><div class="font-mono font-semibold" id="tBatt">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.temperature">Temperatura</div><div class="font-mono font-semibold" id="tTemp">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.bearing">Bearing</div><div class="font-mono font-semibold" id="tBearing">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.elevation">Elevacija</div><div class="font-mono font-semibold" id="tElev">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.horiz_speed">Horiz. brzina</div><div class="font-mono font-semibold" id="tSpeed">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.course">Smjer</div><div class="font-mono font-semibold" id="tCourse">—</div></div>
+            <div><div class="text-xs text-slate-500" data-i18n="telemetry.snr">SNR</div><div class="font-mono font-semibold" id="tSnr">—</div></div>
+          </div>
+          <!-- Dinamički custom fields (Horus v2/v3) -->
+          <div id="customFieldsGrid" class="hidden grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 text-sm mt-3 pt-3 border-t border-cyan-900/30">
+          </div>
+        </div>
+      </div>
+
+      <div class="collapsible-panel" data-panel-id="kpi">
+        <div class="flex items-center gap-2 mb-2 cursor-pointer collapsible-panel-header" data-panel-id="kpi">
+          <h2 class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="gauge" class="w-4 h-4"></i>
+            <span data-i18n="kpi.title">Ključni pokazatelji</span>
+          </h2>
+          <button class="p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="kpi" title="Minimiziraj/proširi">
+            <i data-lucide="chevron-up" class="w-3.5 h-3.5 collapsible-toggle-icon"></i>
+          </button>
+        </div>
+        <div class="collapsible-panel-body" data-panel-id="kpi">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-slate-900 rounded-xl border border-slate-800 p-4">
+              <div class="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                <i data-lucide="arrow-up" class="w-4 h-4"></i>
+                <span data-i18n="kpi.altitude">Visina</span>
+              </div>
+              <div class="text-2xl font-bold" id="kpiAltitude">---</div>
+              <div class="text-xs text-slate-500" id="kpiMaxAltitude">max ---</div>
+            </div>
+
+            <div class="bg-slate-900 rounded-xl border border-slate-800 p-4">
+              <div class="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                <i data-lucide="trending-up" class="w-4 h-4"></i>
+                <span data-i18n="kpi.climb_rate">Brzina penjanja</span>
+              </div>
+              <div class="text-2xl font-bold" id="kpiClimb">---</div>
+              <div class="text-xs text-slate-500">m/s</div>
+            </div>
+
+            <div class="bg-slate-900 rounded-xl border border-slate-800 p-4">
+              <div class="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                <i data-lucide="navigation" class="w-4 h-4"></i>
+                <span data-i18n="kpi.range">Udaljenost</span>
+              </div>
+              <div class="text-2xl font-bold" id="kpiRange">---</div>
+              <div class="text-xs text-slate-500" id="kpiBearing">brng ---</div>
+            </div>
+
+            <div class="bg-slate-900 rounded-xl border border-slate-800 p-4">
+              <div class="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                <i data-lucide="signal" class="w-4 h-4"></i>
+                <span>SNR</span>
+              </div>
+              <div class="text-2xl font-bold" id="kpiSnr">---</div>
+              <div class="text-xs text-slate-500" id="kpiSnrAvg">avg ---</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between bg-slate-900 rounded-xl border border-slate-800 px-4 py-3">
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-slate-400" data-i18n="flight.phase">Faza leta:</span>
+          <span id="flightPhase" class="px-3 py-1 rounded-full bg-slate-800 text-sm font-semibold">—</span>
+        </div>
+        <div class="text-sm text-slate-400">
+          <span id="packetCount">0</span> <span data-i18n="flight.packets">paketa</span> •
+          <span id="successRate">---</span>% <span data-i18n="flight.success">uspješno</span> •
+          <span id="lastPacketAge" class="text-slate-500" data-i18n="flight.waiting">Čekanje…</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden collapsible-panel" data-panel-id="map">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800 flex-wrap gap-2 cursor-pointer collapsible-panel-header" data-panel-id="map">
+          <h2 class="font-semibold flex items-center gap-2">
+            <i data-lucide="map" class="w-5 h-5"></i>
+            <span data-i18n="map.title">Karta i putanja</span>
+            <button class="ml-2 p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="map" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 collapsible-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="flex items-center gap-3 text-xs flex-wrap">
+            <div id="weatherLayerControls" class="hidden flex items-center gap-2">
+              <span class="text-slate-500" data-i18n="map.weather">Vrijeme:</span>
+              <select id="weatherLayerSelect" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs focus:outline-none focus:border-brand-500">
+                <option value="" data-i18n="map.no_layer">Bez sloja</option>
+                <option value="clouds_new" data-i18n="map.clouds">Oblaci</option>
+                <option value="precipitation_new" data-i18n="map.precipitation">Padaline</option>
+                <option value="pressure_new" data-i18n="map.pressure">Tlak</option>
+                <option value="wind_new" data-i18n="map.wind">Vjetar</option>
+                <option value="temp_new" data-i18n="map.temperature">Temperatura</option>
+              </select>
+            </div>
+            <div id="weatherOpacityControl" class="hidden items-center gap-2">
+              <span class="text-slate-500" data-i18n="map.opacity">Prozirnost:</span>
+              <input type="range" id="weatherOpacitySlider" min="10" max="100" value="85" class="w-24 accent-brand-500" />
+              <span id="weatherOpacityValue" class="text-slate-400 font-mono w-8 text-right">85%</span>
+            </div>
+            <label class="flex items-center gap-1 cursor-pointer" title="Krug radio dometa oko balona">
+              <input type="checkbox" id="showHorizonRings" class="accent-brand-500" />
+              <span data-i18n="map.horizon_rings">Radio horizont balona</span>
+            </label>
+            <label class="flex items-center gap-1 cursor-pointer" title="METAR podaci s obližnjih aerodroma (oblaci, vjetar, vidljivost)">
+              <input type="checkbox" id="showMetarStations" class="accent-brand-500" />
+              <span data-i18n="map.metar_stations">METAR stanice</span>
+            </label>
+          </div>
+        </div>
+        <div class="collapsible-panel-body" data-panel-id="map">
+          <div id="map" class="w-full h-[500px]"></div>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden collapsible-panel" data-panel-id="spectrum">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800 flex-wrap gap-2 cursor-pointer collapsible-panel-header" data-panel-id="spectrum">
+          <h2 class="font-semibold flex items-center gap-2">
+            <i data-lucide="audio-waveform" class="w-5 h-5"></i>
+            <span data-i18n="spectrum.title">Audio spektar</span>
+            <button class="ml-2 p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="spectrum" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 collapsible-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="flex items-center gap-4 text-xs flex-wrap">
+            <div>
+              <span class="text-slate-500" data-i18n="spectrum.level">Razina:</span>
+              <span id="dbfsValue" class="font-mono font-semibold ml-1 text-slate-400">---</span>
+              <span class="text-slate-500">dBFS</span>
+            </div>
+            <div>
+              <span class="text-slate-500" data-i18n="spectrum.max_freq">Max freq:</span>
+              <span id="peakFreqValue" class="font-mono font-semibold ml-1 text-slate-400">---</span>
+              <span class="text-slate-500">Hz</span>
+            </div>
+            <div>
+              <span class="text-slate-500" data-i18n="spectrum.tones">Detektirani tonovi:</span>
+              <span id="toneInfoValue" class="font-mono font-semibold ml-1 text-slate-400">---</span>
+            </div>
+            <div id="audioIndicator" class="flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-slate-600"></span>
+              <span class="text-slate-500" data-i18n="spectrum.no_signal">Nema signala</span>
+            </div>
+          </div>
+        </div>
+        <div class="collapsible-panel-body" data-panel-id="spectrum">
+          <div class="p-4">
+            <div class="h-80"><canvas id="spectrumChart"></canvas></div>
+            <div class="mt-3 flex items-center gap-3">
+              <span class="text-xs text-slate-500 w-12">-100</span>
+              <div class="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden relative">
+                <div id="dbfsBar" class="h-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-red-500 transition-all" style="width: 0%"></div>
+              </div>
+              <span class="text-xs text-slate-500 w-6">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden collapsible-panel" data-panel-id="flight-analysis">
+        <div class="flex items-center justify-between px-4 py-3 flex-wrap gap-3 cursor-pointer collapsible-panel-header" data-panel-id="flight-analysis">
+          <h2 class="font-semibold flex items-center gap-2">
+            <i data-lucide="line-chart" class="w-5 h-5"></i>
+            <span data-i18n="charts.analysis">Analiza leta</span>
+            <button class="ml-2 p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="flight-analysis" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 collapsible-toggle-icon"></i>
+            </button>
+            <span id="chartRangePacketCount" class="ml-2 text-xs text-slate-500 font-normal">0 paketa</span>
+          </h2>
+          <div class="flex items-center gap-4 flex-wrap">
+            <div id="callsignSelectContainer" class="hidden flex items-center gap-2">
+              <label class="text-xs text-slate-400" data-i18n="charts.balloon">Balon:</label>
+              <select id="callsignSelect" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-brand-500 min-w-[140px]">
+                <option value="" data-i18n="charts.all">Svi</option>
+              </select>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-slate-400 flex items-center gap-1">
+                <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                <span data-i18n="charts.range">Raspon:</span>
+              </label>
+              <select id="chartTimeRange" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-brand-500">
+                <option value="300" selected data-i18n="range.5min">Zadnjih 5 min</option>
+                <option value="900" data-i18n="range.15min">Zadnjih 15 min</option>
+                <option value="3600" data-i18n="range.1h">Zadnji 1 sat</option>
+                <option value="10800" data-i18n="range.3h">Zadnja 3 sata</option>
+                <option value="21600" data-i18n="range.6h">Zadnjih 6 sati</option>
+                <option value="43200" data-i18n="range.12h">Zadnjih 12 sati</option>
+                <option value="86400" data-i18n="range.24h">Zadnja 24 sata</option>
+                <option value="172800" data-i18n="range.2d">Zadnja 2 dana</option>
+                <option value="604800" data-i18n="range.7d">Zadnjih 7 dana</option>
+                <option value="all" data-i18n="range.all">Svi podaci</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="collapsible-panel-body" data-panel-id="flight-analysis">
+
+      <div class="space-y-4 pt-4">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="altitude">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="altitude">
+            <i data-lucide="line-chart" class="w-5 h-5"></i>
+            <span data-i18n="charts.altitude_profile">Profil visine</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="altitude" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="altitude">
+            <div class="h-64"><canvas id="altitudeChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="snr">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="snr">
+            <i data-lucide="activity" class="w-5 h-5"></i>
+            <span data-i18n="charts.snr_over_time">SNR kroz vrijeme</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="snr" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="snr">
+            <div class="h-64"><canvas id="snrChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="battery">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="battery">
+            <i data-lucide="battery-charging" class="w-5 h-5"></i>
+            <span data-i18n="charts.battery">Baterija (V)</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="battery" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="battery">
+            <div class="h-48"><canvas id="batteryChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="temperature">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="temperature">
+            <i data-lucide="thermometer" class="w-5 h-5"></i>
+            <span data-i18n="charts.temperature">Temperatura (°C)</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="temperature" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="temperature">
+            <div class="h-48"><canvas id="temperatureChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="satellites">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="satellites">
+            <i data-lucide="satellite" class="w-5 h-5"></i>
+            <span data-i18n="charts.gps_satellites">GPS sateliti</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="satellites" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="satellites">
+            <div class="h-48"><canvas id="satellitesChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="climbrate">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="climbrate">
+            <i data-lucide="trending-up" class="w-5 h-5"></i>
+            <span data-i18n="charts.climb_rate">Brzina penjanja (m/s)</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="climbrate" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="climbrate">
+            <div class="h-48"><canvas id="climbRateChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="speed">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="speed">
+            <i data-lucide="gauge" class="w-5 h-5" style="color: #06b6d4"></i>
+            <span data-i18n="charts.speed">Brzina</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="speed" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="speed">
+            <div class="h-48"><canvas id="speedChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="ascentrate">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="ascentrate">
+            <i data-lucide="arrow-up-right" class="w-5 h-5" style="color: #ec4899"></i>
+            <span data-i18n="charts.ascent_rate_chart">Brzina uspona</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="ascentrate" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="ascentrate">
+            <div class="h-48"><canvas id="ascentRateChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="exthumidity">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="exthumidity">
+            <i data-lucide="droplets" class="w-5 h-5" style="color: #14b8a6"></i>
+            <span data-i18n="charts.ext_humidity">Ext. vlažnost (%)</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="exthumidity" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="exthumidity">
+            <div class="h-48"><canvas id="extHumidityChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="extpressure">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="extpressure">
+            <i data-lucide="arrow-down-to-line" class="w-5 h-5" style="color: #a855f7"></i>
+            <span data-i18n="charts.ext_pressure">Ext. tlak (hPa)</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="extpressure" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="extpressure">
+            <div class="h-48"><canvas id="extPressureChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="crcpass">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="crcpass">
+            <i data-lucide="shield-check" class="w-5 h-5" style="color: #84cc16"></i>
+            <span data-i18n="charts.crc_pass">CRC Pass</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="crcpass" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="crcpass">
+            <div class="h-48"><canvas id="crcPassChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 chart-panel" data-chart-id="horizspeed">
+          <h2 class="font-semibold mb-3 flex items-center gap-2 cursor-pointer chart-panel-header" data-chart-id="horizspeed">
+            <i data-lucide="move-horizontal" class="w-5 h-5" style="color: #0ea5e9"></i>
+            <span data-i18n="charts.horiz_speed">Horiz. brzina (km/h)</span>
+            <button class="ml-auto p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 chart-toggle-btn" data-chart-id="horizspeed" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 chart-toggle-icon"></i>
+            </button>
+          </h2>
+          <div class="chart-panel-body" data-chart-id="horizspeed">
+            <div class="h-48"><canvas id="horizSpeedChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dinamički custom field grafovi (automatski se pune iz charts.js) -->
+      <div id="customChartsContainer" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+
+      </div><!-- /space-y-4 wrapper -->
+      </div><!-- /collapsible-panel-body flight-analysis -->
+      </div><!-- /collapsible-panel flight-analysis -->
+
+      <div class="bg-slate-900 rounded-xl border border-slate-800 collapsible-panel" data-panel-id="console">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800 cursor-pointer collapsible-panel-header" data-panel-id="console">
+          <h2 class="font-semibold flex items-center gap-2">
+            <i data-lucide="terminal" class="w-5 h-5"></i>
+            <span data-i18n="console.title">Konzola</span>
+            <button class="ml-2 p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="console" title="Minimiziraj/proširi">
+              <i data-lucide="chevron-up" class="w-4 h-4 collapsible-toggle-icon"></i>
+            </button>
+          </h2>
+          <button id="clearConsoleBtn" class="text-xs text-slate-400 hover:text-slate-200" data-i18n="console.clear">Očisti</button>
+        </div>
+        <div class="collapsible-panel-body" data-panel-id="console">
+          <div id="console" class="px-4 py-3 h-48 overflow-y-auto font-mono text-xs space-y-0.5"></div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- ================== SETTINGS MODAL ================== -->
+  <div id="settingsModal"
+       class="horus-modal-overlay hidden fixed inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+       role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800 sticky top-0 bg-slate-900 z-10">
+        <h2 id="settingsTitle" class="text-lg font-semibold flex items-center gap-2">
+          <i data-lucide="settings" class="w-5 h-5 text-brand-500"></i>
+          <span data-i18n="settings.title">Postavke</span>
+        </h2>
+        <button id="closeSettingsBtn" class="p-1.5 rounded-lg hover:bg-slate-800 transition" aria-label="Zatvori">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-6">
+
+        <!-- JEZIK / LANGUAGE -->
+        <section class="space-y-3">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="globe" class="w-4 h-4"></i>
+            <span data-i18n="settings.language">Jezik sučelja</span>
+          </h3>
+          <div>
+            <select id="settingsLanguageSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
+              <option value="hr">🇭🇷  Hrvatski</option>
+              <option value="en">🇬🇧  English</option>
+              <option value="pl">🇵🇱  Polski</option>
+            </select>
+            <p class="text-xs text-slate-500 mt-1" data-i18n="settings.language_hint">Promjena jezika se primjenjuje odmah.</p>
+          </div>
+        </section>
+
+        <div class="border-t border-slate-800"></div>
+
+        <!-- SERVER -->
+        <section class="space-y-3">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="server" class="w-4 h-4"></i>
+            <span data-i18n="settings.server">Server</span>
+          </h3>
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="settings.server_port">Port servera</label>
+            <input id="settingsServerPort" type="number" min="1" max="65535" placeholder="8000"
+                   class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+            <p class="text-xs text-slate-500 mt-1">
+              <span data-i18n="settings.server_current">Trenutni:</span> <span id="settingsCurrentPort" class="font-mono text-slate-300">—</span>.
+              <span data-i18n-html="settings.server_restart_hint">Promjena se aktivira tek <strong class="text-amber-400">nakon što ručno ponovno pokreneš program</strong>.</span>
+            </p>
+          </div>
+          <button id="saveServerConfigBtn"
+                  class="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm flex items-center justify-center gap-2">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            <span data-i18n="settings.save_port">Spremi port</span>
+          </button>
+        </section>
+
+        <div class="border-t border-slate-800"></div>
+
+        <!-- PRIVATE SERVER -->
+        <section class="space-y-3">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="radio-tower" class="w-4 h-4"></i>
+            <span data-i18n="settings.private_server">Privatni server</span>
+          </h3>
+
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="privateServerEnabled" type="checkbox" class="accent-brand-500 w-4 h-4" />
+              <span class="text-sm" data-i18n="settings.private_server_enabled">Slanje telemetrije na privatni server</span>
+            </label>
+            <p class="text-xs text-slate-500 mt-1" data-i18n="settings.private_server_hint">Šalje dekodirane pakete na vaš server paralelno sa SondeHub-om.</p>
+          </div>
+
+          <div id="privateServerFields" class="space-y-3 hidden">
+            <div class="grid grid-cols-3 gap-2">
+              <div class="col-span-2">
+                <label class="text-xs text-slate-400" data-i18n="settings.private_server_host">Adresa (host/IP)</label>
+                <input id="privateServerHost" type="text" placeholder="192.168.1.100"
+                       data-i18n-placeholder="settings.private_server_host_placeholder"
+                       class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
+              </div>
+              <div>
+                <label class="text-xs text-slate-400" data-i18n="settings.private_server_port">Port</label>
+                <input id="privateServerPort" type="number" min="1" max="65535" placeholder="5000"
+                       class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-xs text-slate-400" data-i18n="settings.private_server_protocol">Protokol</label>
+                <select id="privateServerProtocol"
+                        class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
+                  <option value="udp">UDP</option>
+                  <option value="tcp">TCP</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-slate-400" data-i18n="settings.private_server_format">Format podataka</label>
+                <select id="privateServerFormat"
+                        class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
+                  <option value="json">JSON</option>
+                  <option value="csv">CSV</option>
+                </select>
+              </div>
+            </div>
+
+            <p class="text-xs text-slate-500" data-i18n-html="settings.private_server_info">
+              UDP: fire-and-forget, brže. TCP: pouzdanije, ali sporije.<br>
+              JSON šalje sva polja iz paketa. CSV šalje: callsign, time, lat, lon, alt, speed, heading, snr, battery, temp, sats.
+            </p>
+          </div>
+
+          <p class="text-xs text-slate-500" data-i18n="settings.private_server_note">Postavke privatnog servera se spremaju zajedno sa stanicom (Spremi u sidebaru).</p>
+        </section>
+
+        <div class="border-t border-slate-800"></div>
+
+        <!-- LOGGING -->
+        <section class="space-y-3">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="folder-open" class="w-4 h-4"></i>
+            <span data-i18n="settings.logging">Logiranje telemetrije</span>
+          </h3>
+
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="settingsLoggingEnabled" type="checkbox" class="accent-brand-500 w-4 h-4" />
+              <span class="text-sm" data-i18n="settings.logging_enabled">Aktivno logiranje dolaznih paketa</span>
+            </label>
+            <p class="text-xs text-slate-500 mt-1" data-i18n="settings.logging_disabled_hint">Kad je isključeno, novi paketi se neće spremati u datoteke.</p>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="settings.log_directory">Direktorij za spremanje/čitanje logova</label>
+            <div class="flex gap-2 mt-1">
+              <input id="settingsLogDirectory" type="text"
+                     placeholder="npr. C:\Users\Zoran\Documents\HorusLogs"
+                     data-i18n-placeholder="settings.log_dir_placeholder"
+                     class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
+              <button id="browseLogDirBtn" type="button"
+                      class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition text-sm flex items-center gap-1.5 whitespace-nowrap">
+                <i data-lucide="folder-search" class="w-4 h-4"></i>
+                <span data-i18n="settings.log_dir_select">Odaberi</span>
+              </button>
+            </div>
+            <p class="text-xs text-slate-500 mt-1" data-i18n-html="settings.log_dir_hint">
+              Apsolutna putanja. Ako direktorij ne postoji, bit će napravljen.
+              Ostavi prazno za default (<code class="text-slate-400">backend/logs/</code>).
+            </p>
+            <p class="text-xs text-slate-500 mt-1">
+              <span data-i18n="settings.log_dir_current">Trenutno:</span> <span id="settingsCurrentLogDir" class="font-mono text-slate-300 break-all">—</span>
+            </p>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="settings.log_format">Format logova</label>
+            <select id="settingsLogFormat"
+                    class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
+              <option value="CSV" data-i18n="settings.log_format_csv">CSV (jedan red = jedan paket)</option>
+              <option value="JSON" data-i18n="settings.log_format_json">JSON (jedan red = jedan paket)</option>
+            </select>
+          </div>
+
+          <div id="settingsLogFilesInfo" class="text-xs text-slate-500 hidden">
+            <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded-lg border border-slate-700">
+              <i data-lucide="file-text" class="w-4 h-4 text-slate-400"></i>
+              <span id="settingsLogFilesText">—</span>
+            </div>
+          </div>
+
+          <button id="saveLoggingConfigBtn"
+                  class="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm flex items-center justify-center gap-2">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            <span data-i18n="settings.save_logging">Spremi postavke logiranja</span>
+          </button>
+        </section>
+
+        <div class="border-t border-slate-800"></div>
+
+        <!-- ALERTI -->
+        <section class="space-y-3">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="bell" class="w-4 h-4"></i>
+            <span data-i18n="settings.alerts">Alerti i upozorenja</span>
+          </h3>
+
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="alertEnabled" type="checkbox" checked class="accent-brand-500 w-4 h-4" />
+              <span class="text-sm" data-i18n="settings.alerts_enabled">Aktiviraj alerte</span>
+            </label>
+            <p class="text-xs text-slate-500 mt-1" data-i18n="settings.alerts_hint">Toast notifikacija + zvuk kad se prekorači prag.</p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-400" data-i18n="settings.battery_min">Baterija min (V)</label>
+              <input id="alertBatteryV" type="number" step="0.01" value="0.91"
+                     class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+            </div>
+            <div>
+              <label class="text-xs text-slate-400" data-i18n="settings.temp_min">Temperatura min (°C)</label>
+              <input id="alertTempC" type="number" step="1" value="-50"
+                     class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+            </div>
+            <div>
+              <label class="text-xs text-slate-400" data-i18n="settings.snr_min">SNR min (dB)</label>
+              <input id="alertSnrDb" type="number" step="0.5" value="-5"
+                     class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+            </div>
+            <div>
+              <label class="text-xs text-slate-400" data-i18n="settings.timeout">Timeout paketa (s)</label>
+              <input id="alertTimeoutS" type="number" step="10" value="300"
+                     class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+            </div>
+          </div>
+
+          <p class="text-xs text-slate-500" data-i18n="settings.alerts_info">
+            Alerte: burst detektiran, GPS fix izgubljen, baterija/temp/SNR ispod praga, gubitak paketa.
+          </p>
+
+          <button id="saveAlertConfigBtn"
+                  class="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm flex items-center justify-center gap-2">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            <span data-i18n="settings.save_alerts">Spremi alerte</span>
+          </button>
+        </section>
+
+        <div class="border-t border-slate-800"></div>
+
+        <!-- EMAIL NOTIFIKACIJE -->
+        <section class="space-y-3">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="mail" class="w-4 h-4"></i>
+            <span data-i18n="settings.email">Email notifikacije — nova sonda</span>
+          </h3>
+
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="emailEnabled" type="checkbox" class="accent-brand-500 w-4 h-4" />
+              <span class="text-sm" data-i18n="settings.email_enabled">Aktiviraj email notifikacije</span>
+            </label>
+            <p class="text-xs text-slate-500 mt-1" data-i18n="settings.email_hint">Šalje email kad se detektira nova sonda u zraku (prvi paket).</p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div class="col-span-2">
+              <label class="text-xs text-slate-400" data-i18n="settings.smtp_server">SMTP server</label>
+              <input id="emailSmtpServer" type="text" placeholder="smtp.gmail.com"
+                     class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
+            </div>
+            <div>
+              <label class="text-xs text-slate-400" data-i18n="settings.smtp_port">SMTP port</label>
+              <input id="emailSmtpPort" type="number" value="587" placeholder="587"
+                     class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+              <p class="text-xs text-slate-500 mt-1" data-i18n="settings.smtp_port_hint">587 (STARTTLS) ili 465 (SSL)</p>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400" data-i18n="settings.cooldown">Cooldown (sati)</label>
+              <input id="emailCooldownHours" type="number" step="0.5" value="6" placeholder="6"
+                     class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+              <p class="text-xs text-slate-500 mt-1" data-i18n="settings.cooldown_hint">Min. razmak između emailova za istu sondu</p>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="settings.smtp_user">SMTP korisnik (email za login)</label>
+            <input id="emailSmtpUser" type="text" placeholder="user@gmail.com"
+                   class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="settings.smtp_password">SMTP lozinka</label>
+            <input id="emailSmtpPassword" type="password" placeholder="App Password ili lozinka" autocomplete="off"
+                   data-i18n-placeholder="settings.smtp_password_placeholder"
+                   class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
+            <p id="emailPasswordStatus" class="text-xs text-emerald-400 mt-1 hidden" data-i18n="settings.smtp_password_set">✓ lozinka postavljena</p>
+            <p class="text-xs text-slate-500 mt-1" data-i18n-html="settings.gmail_hint">
+              Za Gmail koristi <a href="https://myaccount.google.com/apppasswords" target="_blank" class="text-brand-500 hover:underline">App Password</a> (potrebna je 2FA).
+            </p>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="settings.from_email">Pošiljatelj (From)</label>
+            <input id="emailFromEmail" type="email" placeholder="Ostavi prazno = SMTP korisnik"
+                   data-i18n-placeholder="settings.from_placeholder"
+                   class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="settings.to_email">Primatelj (To)</label>
+            <input id="emailToEmail" type="email" placeholder="tvoj@email.com"
+                   class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
+          </div>
+
+          <div class="flex gap-2">
+            <button id="saveEmailConfigBtn"
+                    class="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm flex items-center justify-center gap-2">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span data-i18n="settings.save_email">Spremi</span>
+            </button>
+            <button id="testEmailBtn"
+                    class="px-4 py-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 transition text-sm flex items-center justify-center gap-2">
+              <i data-lucide="send" class="w-4 h-4"></i>
+              <span data-i18n="settings.test_email">Test email</span>
+            </button>
+          </div>
+          <p id="emailTestResult" class="text-xs hidden mt-1"></p>
+        </section>
+
+        <div class="border-t border-slate-800"></div>
+
+        <!-- STARTUP PROGRAMI -->
+        <section class="space-y-3">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="rocket" class="w-4 h-4"></i>
+            <span data-i18n="settings.startup">Automatsko pokretanje programa</span>
+          </h3>
+
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="startupProgramsEnabled" type="checkbox" class="accent-brand-500 w-4 h-4" />
+              <span class="text-sm" data-i18n="settings.startup_enabled">Pokreni programe zajedno s Horusom</span>
+            </label>
+            <p class="text-xs text-slate-500 mt-1" data-i18n="settings.startup_hint">Konfigurirani programi (npr. SDR++) pokrenut će se automatski kad Horus startuje.</p>
+          </div>
+
+          <div id="startupProgramsList" class="space-y-2">
+            <!-- Dinamički popunjeno iz JS -->
+          </div>
+
+          <div class="flex gap-2">
+            <button id="addStartupProgramBtn"
+                    class="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-dashed border-slate-600 transition text-sm flex items-center justify-center gap-2 text-slate-400 hover:text-slate-200">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span data-i18n="settings.add_program">Dodaj program</span>
+            </button>
+            <button id="detectStartupProgramsBtn"
+                    class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm flex items-center gap-1.5 text-slate-400 hover:text-slate-200"
+                    title="Automatski pronađi instalirane SDR programe">
+              <i data-lucide="search" class="w-4 h-4"></i>
+              <span data-i18n="settings.find_programs">Pronađi</span>
+            </button>
+          </div>
+
+          <button id="saveStartupProgramsBtn"
+                  class="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm flex items-center justify-center gap-2">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            <span data-i18n="settings.save_startup">Spremi postavke pokretanja</span>
+          </button>
+        </section>
+
+        <div class="border-t border-slate-800"></div>
+
+        <!-- OPENWEATHER -->
+        <section class="space-y-3">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="cloud" class="w-4 h-4"></i>
+            <span data-i18n="settings.weather">OpenWeather</span>
+          </h3>
+          <div>
+            <label class="text-xs text-slate-400" data-i18n="settings.weather_api_key">API Key</label>
+            <input id="settingsWeatherApiKey" type="password" placeholder="Upiši svoj API ključ" autocomplete="off"
+                   data-i18n-placeholder="settings.weather_placeholder"
+                   class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
+            <p class="text-xs text-slate-500 mt-1">
+              <a href="https://home.openweathermap.org/api_keys" target="_blank" class="text-brand-500 hover:underline" data-i18n="settings.weather_get_key">Dobij besplatan API ključ</a>
+              <span id="settingsWeatherKeyStatus" class="ml-2 text-emerald-400 hidden" data-i18n="settings.weather_set">✓ postavljen</span>
+            </p>
+            <p class="text-xs text-slate-500 mt-1" data-i18n="settings.weather_hint">
+              Kad je ključ postavljen, vremenski slojevi se automatski nude u izborniku filtra na karti.
+            </p>
+          </div>
+          <div class="flex gap-2">
+            <button id="saveWeatherBtn"
+                    class="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm flex items-center justify-center gap-2">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span data-i18n="settings.save_weather">Spremi ključ</span>
+            </button>
+            <button id="deleteWeatherKeyBtn"
+                    class="px-3 py-2 rounded-lg bg-red-600/20 hover:bg-red-600/40 text-red-400 transition text-sm flex items-center gap-1"
+                    title="Obriši spremljeni ključ">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </section>
+
+      </div>
+
+      <div class="px-5 py-3 border-t border-slate-800 flex justify-end">
+        <button id="closeSettingsFooterBtn"
+                class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 transition text-sm font-semibold" data-i18n="settings.close">
+          Zatvori
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================== ABOUT MODAL ================== -->
+  <div id="aboutModal"
+       class="horus-modal-overlay hidden fixed inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+       role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm">
+
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+        <h2 id="aboutTitle" class="text-lg font-semibold flex items-center gap-2">
+          <i data-lucide="info" class="w-5 h-5 text-brand-500"></i>
+          <span data-i18n="about.title">O aplikaciji</span>
+        </h2>
+        <button id="closeAboutBtn" class="p-1.5 rounded-lg hover:bg-slate-800 transition" aria-label="Zatvori">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-5">
+
+        <!-- Logo + ime -->
+        <div class="flex items-center gap-4">
+          <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center flex-shrink-0 shadow-lg shadow-brand-500/20">
+            <i data-lucide="radio" class="w-7 h-7 text-white"></i>
+          </div>
+          <div>
+            <h3 class="text-xl font-bold text-white">Horus Web</h3>
+            <p class="text-sm text-slate-400" data-i18n="about.subtitle">Balloon Telemetry Decoder</p>
+          </div>
+        </div>
+
+        <!-- Info redovi -->
+        <div class="space-y-3 text-sm">
+
+          <div class="flex items-center justify-between py-2 border-b border-slate-800/60">
+            <span class="text-slate-400 flex items-center gap-2">
+              <i data-lucide="tag" class="w-4 h-4"></i>
+              <span data-i18n="about.version">Verzija</span>
+            </span>
+            <span class="font-mono text-white">1.5</span>
+          </div>
+
+          <div class="flex items-center justify-between py-2 border-b border-slate-800/60">
+            <span class="text-slate-400 flex items-center gap-2">
+              <i data-lucide="user" class="w-4 h-4"></i>
+              <span data-i18n="about.author">Autor</span>
+            </span>
+            <span class="text-white">9A6NDZ Zoran</span>
+          </div>
+
+          <div class="flex items-center justify-between py-2 border-b border-slate-800/60">
+            <span class="text-slate-400 flex items-center gap-2">
+              <i data-lucide="code-2" class="w-4 h-4"></i>
+              <span data-i18n="about.based_on">Bazirano na</span>
+            </span>
+            <a href="https://github.com/projecthorus/horusdemodlib"
+               target="_blank" rel="noopener"
+               class="text-brand-500 hover:text-brand-400 hover:underline transition">
+              horusdemodlib
+            </a>
+          </div>
+
+          <div class="flex items-center justify-between py-2">
+            <span class="text-slate-400 flex items-center gap-2">
+              <i data-lucide="scale" class="w-4 h-4"></i>
+              <span data-i18n="about.license">Licenca</span>
+            </span>
+            <a href="https://opensource.org/licenses/GPL-3.0"
+               target="_blank" rel="noopener"
+               class="text-brand-500 hover:text-brand-400 hover:underline transition">
+              GPL-3.0
+            </a>
+          </div>
+
+        </div>
+
+        <!-- GitHub link -->
+        <a href="https://github.com/projecthorus/horusdemodlib"
+           target="_blank" rel="noopener"
+           class="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition text-sm text-slate-300 hover:text-white">
+          <i data-lucide="github" class="w-4 h-4"></i>
+          <span data-i18n="about.source_code">Izvorni kod na GitHubu</span>
+        </a>
+
+      </div>
+
+      <div class="px-5 py-3 border-t border-slate-800 flex justify-end">
+        <button id="closeAboutFooterBtn"
+                class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 transition text-sm font-semibold"
+                data-i18n="about.close">
+          Zatvori
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FOLDER BROWSER MODAL -->
+  <div id="folderBrowserModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center horus-modal-overlay" style="z-index:10001; display:none;">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col" style="max-height: 70vh;">
+      <div class="px-5 py-3 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
+        <h2 class="text-base font-bold flex items-center gap-2">
+          <i data-lucide="folder-open" class="w-5 h-5 text-brand-500"></i>
+          <span data-i18n="folder.title">Odaberi direktorij</span>
+        </h2>
+        <button id="closeFolderBrowserBtn" class="text-slate-400 hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="px-5 py-2 border-b border-slate-800 flex-shrink-0">
+        <div class="flex items-center gap-2">
+          <button id="folderBrowserUpBtn" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 transition" title="Gore">
+            <i data-lucide="arrow-up" class="w-4 h-4"></i>
+          </button>
+          <div id="folderBrowserPath" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-300 truncate">
+            ...
+          </div>
+        </div>
+      </div>
+
+      <div id="folderBrowserList" class="flex-1 overflow-y-auto px-2 py-2 space-y-0.5 min-h-[200px]">
+        <div class="text-center text-slate-500 text-sm py-8" data-i18n="folder.loading">Učitavanje...</div>
+      </div>
+
+      <div class="px-5 py-3 border-t border-slate-800 flex justify-between items-center flex-shrink-0">
+        <p class="text-xs text-slate-500 truncate mr-3" id="folderBrowserSelected" data-i18n="folder.not_selected">Nije odabrano</p>
+        <div class="flex gap-2">
+          <button id="folderBrowserCancelBtn" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm" data-i18n="folder.cancel">
+            Odustani
+          </button>
+          <button id="folderBrowserSelectBtn" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 transition text-sm font-semibold" data-i18n="folder.use">
+            Koristi ovaj folder
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/i18n.js"></script>
+  <script src="/static/js/analytics.js"></script>
+  <script src="/static/js/map.js"></script>
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/spectrum.js"></script>
+  <script src="/static/js/app.js"></script>
+  <script>lucide.createIcons();</script>
+</body>
+</html>
