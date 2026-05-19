@@ -1,3 +1,5 @@
+> **⚠️ After updating to a new version**, open the application in your browser and press **`Ctrl + Shift + R`** (hard reload) to clear the cached files from the previous version. This ensures the latest frontend is loaded correctly.
+
 # Horus Web — Balloon Telemetry Decoder
 
 Modern web-based frontend for decoding and tracking high-altitude balloon (HAB) telemetry using the [Horus Binary](https://github.com/projecthorus/horusdemodlib) modem system.
