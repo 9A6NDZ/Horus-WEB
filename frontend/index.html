@@ -1028,6 +1028,7 @@
           <div>
             <label class="text-xs text-slate-400" data-i18n="settings.to_email">Primatelj (To)</label>
             <input id="emailToEmail" type="email" placeholder="tvoj@email.com"
+                   data-i18n-placeholder="settings.to_email_placeholder"
                    class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-500" />
           </div>
 
@@ -1123,6 +1124,40 @@
           </div>
         </section>
 
+        <div class="border-t border-slate-800"></div>
+
+        <!-- PROVJERA AŽURIRANJA -->
+        <section class="space-y-3">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span data-i18n="settings.update">Provjera ažuriranja</span>
+          </h3>
+
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="updateAutoCheck" type="checkbox" class="accent-brand-500 w-4 h-4" />
+              <span class="text-sm" data-i18n="settings.update_auto">Automatski provjeri pri pokretanju</span>
+            </label>
+            <p class="text-xs text-slate-500 mt-1" data-i18n="settings.update_hint">
+              Provjera šalje jedan HTTP zahtjev na GitHub prilikom otvaranja aplikacije.
+            </p>
+          </div>
+
+          <div class="flex gap-2">
+            <button id="saveUpdateConfigBtn"
+                    class="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm flex items-center justify-center gap-2">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span data-i18n="settings.save_update">Spremi</span>
+            </button>
+            <button id="checkUpdateNowBtn"
+                    class="px-4 py-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 transition text-sm flex items-center justify-center gap-2">
+              <i data-lucide="download-cloud" class="w-4 h-4"></i>
+              <span data-i18n="settings.check_now">Provjeri sada</span>
+            </button>
+          </div>
+          <div id="updateCheckResult" class="hidden rounded-lg p-3 text-sm"></div>
+        </section>
+
       </div>
 
       <div class="px-5 py-3 border-t border-slate-800 flex justify-end">
@@ -1209,7 +1244,7 @@
         </div>
 
         <!-- GitHub link -->
-        <a href="https://github.com/projecthorus/horusdemodlib"
+        <a href="https://github.com/9A6NDZ/Horus-WEB"
            target="_blank" rel="noopener"
            class="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition text-sm text-slate-300 hover:text-white">
           <i data-lucide="github" class="w-4 h-4"></i>
