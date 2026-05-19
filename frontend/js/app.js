@@ -36,6 +36,9 @@ const App = (() => {
     await loadLogFiles();
     await syncDecoderStatus();
     connectWebSocket();
+
+    // Provjeri ažuriranja ako je uključeno
+    autoCheckForUpdate();
   }
 
   async function loadDecoderConfig() {
@@ -319,6 +322,13 @@ const App = (() => {
     const deleteWeatherKeyBtn = document.getElementById('deleteWeatherKeyBtn');
     if (deleteWeatherKeyBtn) deleteWeatherKeyBtn.addEventListener('click', deleteWeatherKey);
 
+    // Update check
+    const saveUpdateConfigBtn = document.getElementById('saveUpdateConfigBtn');
+    if (saveUpdateConfigBtn) saveUpdateConfigBtn.addEventListener('click', saveUpdateConfig);
+
+    const checkUpdateNowBtn = document.getElementById('checkUpdateNowBtn');
+    if (checkUpdateNowBtn) checkUpdateNowBtn.addEventListener('click', checkForUpdateManual);
+
     const weatherSelect = document.getElementById('weatherLayerSelect');
     if (weatherSelect) weatherSelect.addEventListener('change', onWeatherLayerChange);
 
@@ -365,6 +375,12 @@ const App = (() => {
       langSelect.addEventListener('change', () => {
         HorusI18n.setLanguage(langSelect.value);
         lucide.createIcons();
+        // Sync language to email notifier backend (silent, fire-and-forget)
+        fetch('/api/email/language', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language: langSelect.value }),
+        }).catch(() => {});
       });
     }
 
@@ -439,6 +455,7 @@ const App = (() => {
     await loadAlertConfigToModal();
     await loadEmailConfigToModal();
     await loadStartupProgramsToModal();
+    await loadUpdateConfigToModal();
     lucide.createIcons();
   }
 
@@ -804,6 +821,7 @@ const App = (() => {
       from_email: (el('emailFromEmail')?.value || '').trim(),
       to_email: (el('emailToEmail')?.value || '').trim(),
       cooldown_hours: parseFloat(el('emailCooldownHours')?.value) || 6,
+      language: HorusI18n.getLang(),
     };
 
     try {
@@ -1401,6 +1419,132 @@ const App = (() => {
       }
     } catch (e) {
       log('ERROR', `Weather delete: ${e.message}`);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // UPDATE CHECK CONFIG
+  // --------------------------------------------------------------------------
+  async function loadUpdateConfigToModal() {
+    try {
+      const r = await fetch('/api/update/config');
+      if (!r.ok) return;
+      const cfg = await r.json();
+      const cb = document.getElementById('updateAutoCheck');
+      if (cb) cb.checked = cfg.auto_check === true;
+    } catch (e) {
+      log('ERROR', `Load update config: ${e.message}`);
+    }
+  }
+
+  async function saveUpdateConfig() {
+    const cb = document.getElementById('updateAutoCheck');
+    const autoCheck = cb ? cb.checked : false;
+    try {
+      const r = await fetch('/api/update/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_check: autoCheck }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      log('INFO', HorusI18n.t('app.update_saved_message'));
+      HorusAnalytics.showAlert({
+        level: 'info',
+        title: HorusI18n.t('app.save_success_title'),
+        message: HorusI18n.t('app.update_saved_message'),
+        icon: 'check-circle',
+      });
+    } catch (e) {
+      log('ERROR', `Save update config: ${e.message}`);
+    }
+  }
+
+  async function checkForUpdate(silent = false) {
+    const resultDiv = document.getElementById('updateCheckResult');
+    if (resultDiv && !silent) {
+      resultDiv.classList.remove('hidden');
+      resultDiv.className = 'rounded-lg p-3 text-sm bg-slate-800 text-slate-300';
+      resultDiv.innerHTML = `<span class="flex items-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> ${HorusI18n.t('app.update_checking')}</span>`;
+      lucide.createIcons();
+    }
+
+    try {
+      const r = await fetch('/api/update/check');
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+
+      if (data.error) {
+        if (!silent) {
+          if (resultDiv) {
+            resultDiv.className = 'rounded-lg p-3 text-sm bg-amber-600/20 text-amber-300';
+            resultDiv.textContent = HorusI18n.t('app.update_error', data.error);
+          }
+        }
+        return;
+      }
+
+      if (data.update_available) {
+        const msg = HorusI18n.t('app.update_available', data.remote_version);
+        const notes = data.release_notes ? HorusI18n.t('app.update_notes', data.release_notes) : '';
+        log('INFO', msg);
+
+        if (resultDiv && !silent) {
+          resultDiv.className = 'rounded-lg p-3 text-sm bg-emerald-600/20 text-emerald-300 space-y-2';
+          resultDiv.innerHTML = `
+            <div class="font-semibold flex items-center gap-2">
+              <i data-lucide="arrow-up-circle" class="w-4 h-4"></i> ${msg}
+            </div>
+            ${notes ? `<div class="text-xs text-emerald-400">${notes}</div>` : ''}
+            <a href="${data.release_url}" target="_blank" rel="noopener"
+               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition mt-1">
+              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+              ${HorusI18n.t('app.update_download')}
+            </a>
+          `;
+          lucide.createIcons();
+        }
+
+        // Ako je silent (auto-check pri startu), prikaži kao alert
+        if (silent) {
+          HorusAnalytics.showAlert({
+            level: 'info',
+            title: HorusI18n.t('app.update_available', data.remote_version),
+            message: notes || HorusI18n.t('app.update_download'),
+            icon: 'arrow-up-circle',
+            duration: 15000,
+          });
+        }
+      } else {
+        if (!silent && resultDiv) {
+          resultDiv.className = 'rounded-lg p-3 text-sm bg-slate-800 text-slate-400';
+          resultDiv.innerHTML = `<span class="flex items-center gap-2"><i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i> ${HorusI18n.t('app.update_current', data.current_version)}</span>`;
+          lucide.createIcons();
+        }
+      }
+    } catch (e) {
+      if (!silent && resultDiv) {
+        resultDiv.className = 'rounded-lg p-3 text-sm bg-red-600/20 text-red-300';
+        resultDiv.textContent = HorusI18n.t('app.update_error', e.message);
+      }
+      log('ERROR', `Update check: ${e.message}`);
+    }
+  }
+
+  function checkForUpdateManual() {
+    checkForUpdate(false);
+  }
+
+  async function autoCheckForUpdate() {
+    try {
+      const r = await fetch('/api/update/config');
+      if (!r.ok) return;
+      const cfg = await r.json();
+      if (cfg.auto_check) {
+        log('INFO', 'Auto-check for updates...');
+        checkForUpdate(true);
+      }
+    } catch (e) {
+      // silent fail
     }
   }
 
