@@ -31,6 +31,13 @@ logging.basicConfig(
 )
 log = logging.getLogger("horus-web")
 
+# Trenutna verzija programa — ažuriraj ovdje pri svakom releasu
+CURRENT_VERSION = "1.5"
+
+# GitHub raw URL za provjeru nove verzije
+UPDATE_CHECK_URL = "https://raw.githubusercontent.com/9A6NDZ/Horus-WEB/main/version.json"
+GITHUB_REPO_URL = "https://github.com/9A6NDZ/Horus-WEB"
+
 
 class ConnectionManager:
     def __init__(self):
@@ -254,7 +261,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Horus Web",
     description="Moderan web UI za Horus Binary telemetry decoder",
-    version="1.5",
+    version=CURRENT_VERSION,
     lifespan=lifespan,
 )
 
@@ -531,6 +538,101 @@ async def api_server_set_config(cfg: ServerConfig):
     except Exception as e:
         log.exception(f"Could not save server config: {e}")
         raise HTTPException(500, str(e))
+
+
+# -----------------------------------------------------------------------------
+# Update Check — provjera nove verzije s GitHuba
+# -----------------------------------------------------------------------------
+def _update_config_path() -> Path:
+    return Path(__file__).parent / "update_config.json"
+
+
+def _load_update_config() -> dict:
+    try:
+        p = _update_config_path()
+        if p.exists():
+            return json.loads(p.read_text())
+    except Exception as e:
+        log.warning(f"Could not load update config: {e}")
+    return {"auto_check": False}
+
+
+def _save_update_config(data: dict):
+    try:
+        _update_config_path().write_text(json.dumps(data, indent=2))
+    except Exception as e:
+        log.warning(f"Could not save update config: {e}")
+
+
+class UpdateConfig(BaseModel):
+    auto_check: bool = False
+
+
+@app.get("/api/update/config")
+async def api_update_get_config():
+    cfg = _load_update_config()
+    cfg["current_version"] = CURRENT_VERSION
+    return cfg
+
+
+@app.post("/api/update/config")
+async def api_update_set_config(cfg: UpdateConfig):
+    data = {"auto_check": cfg.auto_check}
+    _save_update_config(data)
+    log.info(f"Update config saved: auto_check={cfg.auto_check}")
+    return {"ok": True, "auto_check": cfg.auto_check}
+
+
+@app.get("/api/update/check")
+async def api_update_check():
+    """
+    Provjeri GitHub za novu verziju.
+    Čita version.json s raw.githubusercontent.com.
+    """
+    import urllib.request
+    import urllib.error
+
+    try:
+        req = urllib.request.Request(
+            UPDATE_CHECK_URL,
+            headers={"User-Agent": f"HorusWeb/{CURRENT_VERSION}"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            remote = json.loads(resp.read().decode())
+
+        remote_version = remote.get("version", "0.0")
+        release_notes = remote.get("release_notes", "")
+        release_url = remote.get("release_url", GITHUB_REPO_URL)
+
+        # Usporedba verzija (podržava x.y i x.y.z format)
+        def parse_ver(v: str):
+            return tuple(int(x) for x in v.split("."))
+
+        is_newer = parse_ver(remote_version) > parse_ver(CURRENT_VERSION)
+
+        return {
+            "current_version": CURRENT_VERSION,
+            "remote_version": remote_version,
+            "update_available": is_newer,
+            "release_notes": release_notes,
+            "release_url": release_url,
+        }
+    except urllib.error.URLError as e:
+        log.warning(f"Update check failed (network): {e}")
+        return {
+            "current_version": CURRENT_VERSION,
+            "remote_version": None,
+            "update_available": False,
+            "error": "Nije moguće kontaktirati GitHub. Provjeri internet vezu.",
+        }
+    except Exception as e:
+        log.warning(f"Update check failed: {e}")
+        return {
+            "current_version": CURRENT_VERSION,
+            "remote_version": None,
+            "update_available": False,
+            "error": str(e),
+        }
 
 
 @app.post("/api/server/restart")
@@ -1200,6 +1302,7 @@ class EmailConfig(BaseModel):
     from_email: str = ""
     to_email: str = ""
     cooldown_hours: float = 6
+    language: str = "hr"
 
 
 @app.get("/api/email/config")
@@ -1231,6 +1334,27 @@ async def api_email_test():
         return result
     else:
         raise HTTPException(400, result["error"])
+
+
+class LanguageUpdate(BaseModel):
+    language: str = "hr"
+
+
+@app.post("/api/email/language")
+async def api_email_set_language(body: LanguageUpdate):
+    """Silently update email notification language when user switches UI language."""
+    if not email_notifier:
+        return {"ok": True}
+    lang = body.language
+    if lang not in ("hr", "en", "pl"):
+        lang = "hr"
+    if email_notifier.config.get("language") != lang:
+        email_notifier.config["language"] = lang
+        try:
+            email_notifier.save_config(email_notifier.config)
+        except Exception:
+            pass  # non-critical
+    return {"ok": True}
 
 
 # -----------------------------------------------------------------------------
