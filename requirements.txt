@@ -1,0 +1,78 @@
+# =============================================================================
+# Horus Web — Complete Python Dependencies
+# =============================================================================
+# Install with: pip install -r requirements.txt
+#
+# Note: Packages marked [stdlib] are part of Python's standard library and
+# do NOT need to be installed — they are listed here for completeness only.
+# =============================================================================
+
+
+# ---------------------
+# Web Framework & Server
+# ---------------------
+fastapi>=0.100.0                # Web framework (REST API, WebSocket, static files)
+uvicorn>=0.23.0                 # ASGI server
+pydantic>=2.0.0                 # Data validation and settings (used by FastAPI)
+
+# ---------------------
+# HTTP Client
+# ---------------------
+httpx>=0.24.0                   # Async HTTP (weather API, METAR, SondeHub payload lists)
+
+# ---------------------
+# Audio
+# ---------------------
+pyaudio>=0.2.13                 # Audio input/output (requires PortAudio system library)
+
+# ---------------------
+# Horus Modem & Decoder
+# ---------------------
+horusdemodlib>=0.3.0            # Horus Binary v1/v2/v3 & RTTY modem, decoder, SondeHub uploader
+
+# ---------------------
+# Numerical / Signal Processing
+# ---------------------
+numpy>=1.24.0                   # FFT, signal analysis, array operations
+
+# ---------------------
+# PDF Report Generation
+# ---------------------
+matplotlib>=3.7.0               # Chart generation for PDF reports (altitude, SNR graphs)
+reportlab>=4.0.0                # PDF document creation (flight reports)
+
+# ---------------------
+# Build / Packaging (optional — only needed to build .exe)
+# ---------------------
+# pyinstaller>=6.0.0            # Uncomment to build standalone Windows executable
+
+
+# =============================================================================
+# Python Standard Library (included with Python — do NOT install)
+# Listed for documentation purposes only.
+# =============================================================================
+# argparse                      # Command-line argument parsing
+# asyncio                       # Async event loop
+# collections                   # defaultdict, deque
+# contextlib                    # asynccontextmanager (lifespan)
+# csv                           # CSV file read/write (telemetry logging)
+# datetime                      # Date and time handling
+# email.mime.multipart          # Email MIME construction
+# email.mime.text               # Email MIME text parts
+# io                            # In-memory byte streams (PDF generation)
+# json                          # JSON encoding/decoding (config files, API)
+# logging                       # Application logging
+# math                          # Mathematical functions (bearing, distance calc)
+# os                            # OS interface (paths, environment)
+# os.path                       # Path manipulation
+# pathlib                       # Object-oriented filesystem paths
+# queue                         # Thread-safe queue (telemetry logging)
+# re                            # Regular expressions
+# smtplib                       # SMTP email sending
+# ssl                           # SSL/TLS for secure email
+# subprocess                    # Launch external programs (SDR++, file browser)
+# sys                           # System-specific parameters
+# threading                     # Multi-threading (audio, modem, logging)
+# time                          # Time functions
+# typing                        # Type hints (Optional, Callable)
+# webbrowser                    # Auto-open browser on startup
