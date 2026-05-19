@@ -62,72 +62,29 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 
 ---
 
-## Quick Start (Windows .exe)
+## System Requirements
 
-1. Download the latest release `.exe` from the [Releases](../../releases) page
+- **OS:** Windows 10 or Windows 11
+- **Architecture:** 64-bit (x86_64)
+- **Browser:** Any modern browser (Chrome, Firefox, Edge)
+- **Audio:** Sound card or virtual audio cable for receiving audio from SDR software
+
+No installation or Python required — everything is bundled in a single `.exe`.
+
+---
+
+## Quick Start
+
+1. Download the latest `HorusWeb.exe` from the [Releases](https://github.com/9A6NDZ/Horus-WEB/releases) page
 2. Run `HorusWeb.exe`
 3. Your browser will open automatically at `http://localhost:8000`
 4. Select your audio input device and modem type, then click **Start**
-
-No installation or Python required — everything is bundled.
 
 ### Optional: SDR++ Integration
 
 Configure SDR++ (or any SDR software) to output audio on a virtual audio cable, then select that device in Horus Web. Alternatively, use UDP audio mode (port 7355) for direct audio streaming from SDR++.
 
 You can also configure Horus Web to auto-launch SDR++ on startup via Settings → Startup Programs.
-
----
-
-## Running from Source
-
-### Requirements
-
-- Python 3.10+
-- [horusdemodlib](https://github.com/projecthorus/horusdemodlib) (and its dependencies)
-- PortAudio (for PyAudio)
-
-### Installation
-
-```bash
-# Clone this repository
-git clone https://github.com/9A6NDZ/Horus-WEB.git
-cd Horus-WEB
-
-# Install Python dependencies
-pip install fastapi uvicorn numpy pyaudio matplotlib reportlab httpx
-
-# Install horusdemodlib (follow their instructions)
-pip install horusdemodlib
-
-# Run
-python backend/main.py
-```
-
-### Command Line Options
-
-```
-python main.py [options]
-
-  --port PORT       Server port (default: 8000, or saved config value)
-  --host HOST       Bind address (default: 0.0.0.0)
-  --no-browser      Don't auto-open browser on startup
-  --reload          Enable auto-reload for development (source mode only)
-```
-
----
-
-## Building the .exe
-
-The executable is built with PyInstaller. The frontend files are bundled inside the `.exe` under `_internal/frontend/`.
-
-```bash
-pip install pyinstaller
-
-pyinstaller --onefile --name HorusWeb \
-  --add-data "frontend:frontend" \
-  backend/main.py
-```
 
 ---
 
