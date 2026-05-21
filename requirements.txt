@@ -26,6 +26,11 @@ httpx>=0.24.0                   # Async HTTP (weather API, METAR, SondeHub paylo
 pyaudio>=0.2.13                 # Audio input/output (requires PortAudio system library)
 
 # ---------------------
+# RTL-SDR Direct
+# ---------------------
+pyrtlsdr>=0.3.0                 # RTL-SDR dongle interface (direct SDR reception without external software)
+
+# ---------------------
 # Horus Modem & Decoder
 # ---------------------
 horusdemodlib>=0.3.0            # Horus Binary v1/v2/v3 & RTTY modem, decoder, SondeHub uploader

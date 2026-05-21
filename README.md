@@ -6,7 +6,7 @@ Modern web-based frontend for decoding and tracking high-altitude balloon (HAB) 
 
 Built as a full replacement for the original Horus GUI (Qt-based), Horus Web runs entirely in your browser and provides real-time telemetry decoding, mapping, charting, and flight analysis — all from a single `.exe` or Python script.
 
-**Version:** 1.5  
+**Version:** 1.6  
 **Author:** 9A6NDZ Zoran  
 **License:** GPL-3.0
 
@@ -17,6 +17,7 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 ### Decoding & Audio
 - Horus Binary v1/v2/v3 and RTTY (7N1, 7N2, 8N2) modem support
 - Direct audio input from any sound card or via UDP audio stream (e.g. from SDR++)
+- RTL-SDR Direct mode — receive signal directly from RTL-SDR dongle without external SDR software (configurable frequency, gain, PPM offset, bandwidth, bias tee)
 - Configurable baud rate, tone spacing, and mask estimator
 - Real-time FFT audio spectrum display with peak hold and tone detection
 - Audio monitor output — listen to the incoming signal through a separate output device
@@ -31,6 +32,7 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 - Follow mode — camera tracks the selected balloon
 - OpenWeatherMap overlay (clouds, precipitation, pressure, wind, temperature)
 - METAR data from nearby airports (via NOAA AWC)
+- Day/night shadow overlay — real-time solar terminator visualization on the map
 
 ### Flight Analysis
 - Real-time altitude, climb rate, horizontal speed, and course calculation
@@ -87,6 +89,10 @@ No installation or Python required — everything is bundled in a single `.exe`.
 Configure SDR++ (or any SDR software) to output audio on a virtual audio cable, then select that device in Horus Web. Alternatively, use UDP audio mode (port 7355) for direct audio streaming from SDR++.
 
 You can also configure Horus Web to auto-launch SDR++ on startup via Settings → Startup Programs.
+
+### Optional: RTL-SDR Direct Mode
+
+If you have an RTL-SDR dongle, you can receive signals directly without any external SDR software. Enable the **RTL-SDR Direct** checkbox in the sidebar, set your frequency (MHz), gain, and other parameters, then click Start. Horus Web will use `rtl_fm` internally to capture and demodulate the signal.
 
 ---
 
@@ -154,6 +160,8 @@ Horus Web exposes a REST API on the same port as the web interface. All endpoint
 
 **Other:** `/api/alerts/config`, `/api/email/config`, `/api/email/test`, `/api/startup-programs/config`, `/api/monitor/start`, `/api/monitor/stop`, `/api/server/config`, `/api/server/restart`, `/api/browse`
 
+**RTL-SDR:** `/api/rtl-sdr/detect`
+
 **WebSocket:** `ws://localhost:8000/ws` — real-time telemetry packets, FFT data, alerts, and status updates.
 
 ---
@@ -202,6 +210,7 @@ This project is a derivative work that uses [horusdemodlib](https://github.com/p
 | [Matplotlib](https://matplotlib.org/) | PSF/BSD | PDF report chart generation |
 | [ReportLab](https://www.reportlab.com/) | BSD-3-Clause | PDF generation |
 | [PyAudio](https://people.csail.mit.edu/hubert/pyaudio/) | MIT | Audio input/output |
+| [pyrtlsdr](https://github.com/roger-/pyrtlsdr) | GPL-3.0 | RTL-SDR dongle interface for direct SDR reception |
 | [HTTPX](https://www.python-httpx.org/) | BSD-3-Clause | Async HTTP client (weather, METAR) |
 | [PyInstaller](https://pyinstaller.org/) | GPL-2.0 (with bootloader exception) | .exe packaging |
 
