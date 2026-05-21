@@ -890,3 +890,8 @@ body[data-theme="light"] .hover\:bg-slate-600:hover {
   background-color: #cbd5e1 !important;
 }
 
+
+/* Upload station gumb: sakrij kad je Station panel collapsed */
+.collapsible-panel.collapsed > #uploadStationBtn {
+  display: none;
+}
