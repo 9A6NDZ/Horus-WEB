@@ -151,6 +151,15 @@ body.weather-active .leaflet-tile-pane > .leaflet-layer:not(:first-child) .leafl
   filter: none !important;
 }
 
+/* Day/night terminator — sjena mraka */
+.day-night-terminator {
+  filter: none !important;
+  pointer-events: none !important;
+}
+body[data-theme="light"] .day-night-terminator {
+  fill-opacity: 0.25 !important;
+}
+
 /* ====================================================================
    Konzola scrollbar
    ==================================================================== */
