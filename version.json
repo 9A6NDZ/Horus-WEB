@@ -1,8 +1,8 @@
 {
   "version": "1.6",
   "release_notes": "Horus Web v1.6 — What's New
-RTL-SDR Direct Mode — You can now receive signals directly from an RTL-SDR dongle without any external SDR software. Just enable RTL-SDR Direct in the sidebar, set your frequency, gain, PPM offset, bandwidth, and bias tee, and hit Start. No more virtual audio cables or third-party SDR apps required.
-Day/Night Shadow on Map — The live map now shows a real-time day/night terminator overlay, so you can see at a glance which areas are in daylight and which are in darkness. Useful for long-duration flights crossing the terminator.",
+RTL-SDR Direct Mode — You can now receive signals directly from an RTL-SDR dongle without any external SDR software. 
+Day/Night Shadow on Map — The live map now shows a real-time day/night terminator overlay.
   "release_url": "https://github.com/9A6NDZ/Horus-WEB/releases/latest",
   "min_version": "1.0"
 }
