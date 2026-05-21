@@ -694,6 +694,107 @@ const HorusMap = (() => {
   let metarRefreshTimer = null;
   let metarLastCenter = null;
 
+  // ---------------------------------------------------------------------------
+  // DAY/NIGHT TERMINATOR — sjena mraka na karti
+  // Implementacija po astronomskim formulama za subsolar point.
+  // Za svaki stupanj longitude izračunaj lat terminatora, pa napravi poligon.
+  // Multi-polygon s 3 kopije (-360, 0, +360) za Leaflet world wrapping.
+  // Auto-refresh svakih 60s dok je uključen.
+  // ---------------------------------------------------------------------------
+  let terminatorLayer = null;
+  let terminatorEnabled = false;
+  let terminatorRefreshTimer = null;
+
+  function _getSunPosition(date) {
+    const rad = Math.PI / 180;
+    const jd = date.getTime() / 86400000 + 2440587.5;
+    const n = jd - 2451545.0;
+    const L0 = ((280.460 + 0.9856474 * n) % 360 + 360) % 360;
+    const g = (((357.528 + 0.9856003 * n) % 360 + 360) % 360) * rad;
+    const eclipticLng = (L0 + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+    const epsilon = 23.439 * rad - 0.0000004 * rad * n;
+    const declination = Math.asin(Math.sin(epsilon) * Math.sin(eclipticLng));
+    const ra_rad = Math.atan2(Math.cos(epsilon) * Math.sin(eclipticLng), Math.cos(eclipticLng));
+    const ra_deg = ((ra_rad / rad) % 360 + 360) % 360;
+    const gmst_deg = ((280.46061837 + 360.98564736629 * n) % 360 + 360) % 360;
+    const subsolarLng = ((ra_deg - gmst_deg + 540) % 360) - 180;
+    return { lat: declination / rad, lng: subsolarLng };
+  }
+
+  function _terminatorLatAtLng(lng, sunLat, sunLng) {
+    const rad = Math.PI / 180;
+    const sunLatR = sunLat * rad;
+    const dLng = (lng - sunLng) * rad;
+    if (Math.abs(sunLat) < 0.001) {
+      return Math.cos(dLng) >= 0 ? 0 : (dLng > 0 ? 90 : -90);
+    }
+    return Math.atan(-Math.cos(dLng) / Math.tan(sunLatR)) / rad;
+  }
+
+  function _buildTerminatorRing(lngOffset) {
+    // Gradi jedan poligon za jedan "svijet" (offset 0, -360 ili +360)
+    const now = new Date();
+    const sun = _getSunPosition(now);
+    const nightPole = sun.lat >= 0 ? -90 : 90;
+    const lngStart = -180 + lngOffset;
+    const lngEnd = 180 + lngOffset;
+
+    const poly = [];
+    poly.push([nightPole, lngStart]);
+    for (let lng = -180; lng <= 180; lng += 1) {
+      const lat = _terminatorLatAtLng(lng, sun.lat, sun.lng);
+      poly.push([lat, lng + lngOffset]);
+    }
+    poly.push([nightPole, lngEnd]);
+    return poly;
+  }
+
+  function _updateTerminator() {
+    if (!terminatorEnabled) return;
+
+    // 3 kopije za world wrapping: lijevo (-360), centar (0), desno (+360)
+    const rings = [
+      _buildTerminatorRing(-360),
+      _buildTerminatorRing(0),
+      _buildTerminatorRing(360),
+    ];
+
+    if (terminatorLayer) {
+      terminatorLayer.setLatLngs(rings);
+    } else {
+      terminatorLayer = L.polygon(rings, {
+        color: '#94a3b8',
+        weight: 1,
+        opacity: 0.4,
+        fillColor: '#0f172a',
+        fillOpacity: 0.35,
+        interactive: false,
+        smoothFactor: 1,
+        className: 'day-night-terminator',
+      }).addTo(map);
+    }
+
+    if (terminatorLayer) terminatorLayer.bringToBack();
+    if (currentBaseLayer) currentBaseLayer.bringToBack();
+  }
+
+  function setDayNightTerminator(enabled) {
+    terminatorEnabled = !!enabled;
+    if (terminatorEnabled) {
+      _updateTerminator();
+      clearInterval(terminatorRefreshTimer);
+      // Auto-refresh svakih 60 sekundi — terminator se polako pomiče
+      terminatorRefreshTimer = setInterval(_updateTerminator, 60000);
+    } else {
+      clearInterval(terminatorRefreshTimer);
+      terminatorRefreshTimer = null;
+      if (terminatorLayer) {
+        map.removeLayer(terminatorLayer);
+        terminatorLayer = null;
+      }
+    }
+  }
+
   function makeMetarIcon(station) {
     const ceil = station.ceiling;
     const clouds = station.clouds || [];
@@ -875,6 +976,7 @@ const HorusMap = (() => {
     setWeatherLayer, setWeatherOpacity, clearWeatherLayer,
     setHorizonRings, getTrackedCallsigns,
     setMetarEnabled, updateMetarCenter, loadMetarStations,
+    setDayNightTerminator,
     invalidateSize,
   };
 })();

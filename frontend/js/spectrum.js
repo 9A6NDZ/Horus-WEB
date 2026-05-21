@@ -7,6 +7,11 @@ const HorusSpectrum = (() => {
   let lastUpdate = 0;
   const MIN_INTERVAL_MS = 80;
 
+  // RTL mod state — kad je aktivan, X-os prikazuje RF MHz
+  let rtlMode = false;
+  let rtlTargetFreqHz = 0;
+  let rtlCenterFreqHz = 0;
+
   const darkGrid = 'rgba(148, 163, 184, 0.12)';
   const tickColor = '#94a3b8';
 
@@ -78,7 +83,12 @@ const HorusSpectrum = (() => {
             borderColor: '#334155',
             borderWidth: 1,
             callbacks: {
-              title: (items) => items.length ? `${items[0].parsed.x.toFixed(0)} Hz` : '',
+              title: (items) => {
+                if (!items.length) return '';
+                const freq = items[0].parsed.x;
+                if (rtlMode) return (freq / 1e6).toFixed(4) + ' MHz';
+                return `${freq.toFixed(0)} Hz`;
+              },
               label: (ctx) => {
                 if (ctx.datasetIndex === 2) return HorusI18n.t('spectrum.tone_tooltip', ctx.parsed.y.toFixed(1));
                 return `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} dB`;
@@ -90,13 +100,19 @@ const HorusSpectrum = (() => {
           x: {
             type: 'linear',
             min: 100,
-            max: 4000,
+            max: 3500,
             title: { display: true, text: HorusI18n.t('spectrum.freq_axis'), color: tickColor, font: { size: 11 } },
             ticks: {
               color: tickColor,
-              stepSize: 500,
+              maxTicksLimit: 10,
               font: { size: 10 },
-              callback: (v) => v + ' Hz',
+              callback: function(v) {
+                if (rtlMode && rtlTargetFreqHz > 0) {
+                  // Prikaži MHz s 3 decimale
+                  return (v / 1e6).toFixed(3);
+                }
+                return v + ' Hz';
+              },
             },
             grid: { color: darkGrid },
           },
@@ -122,6 +138,28 @@ const HorusSpectrum = (() => {
     const { freqs, spectrum, peak_hold, dbfs, peak_freq, peaks, noise_floor } = fftData;
     if (!freqs || !spectrum || freqs.length === 0) return;
 
+    // Provjeri je li RTL mod aktivan (backend šalje rtl_mode flag)
+    if (fftData.rtl_mode) {
+      if (!rtlMode || rtlTargetFreqHz !== fftData.target_freq_hz) {
+        rtlMode = true;
+        rtlTargetFreqHz = fftData.target_freq_hz || 0;
+        rtlCenterFreqHz = fftData.center_freq_hz || 0;
+
+        // Postavi X-os range na podatke iz backenda
+        chart.options.scales.x.min = freqs[0];
+        chart.options.scales.x.max = freqs[freqs.length - 1];
+        chart.options.scales.x.title.text = 'MHz';
+      }
+    } else if (rtlMode) {
+      // Vrati na audio mod
+      rtlMode = false;
+      rtlTargetFreqHz = 0;
+      rtlCenterFreqHz = 0;
+      chart.options.scales.x.min = 100;
+      chart.options.scales.x.max = 3500;
+      chart.options.scales.x.title.text = HorusI18n.t('spectrum.freq_axis');
+    }
+
     const mainPoints = freqs.map((f, i) => ({ x: f, y: spectrum[i] }));
     chart.data.datasets[0].data = mainPoints;
 
@@ -146,17 +184,41 @@ const HorusSpectrum = (() => {
     updateDbfsIndicators(dbfs);
 
     const peakEl = document.getElementById('peakFreqValue');
+    const peakUnitEl = document.getElementById('peakFreqUnit');
     if (peakEl && peak_freq !== undefined) {
-      peakEl.textContent = peak_freq.toFixed(0);
+      if (rtlMode) {
+        peakEl.textContent = (peak_freq / 1e6).toFixed(4);
+        if (peakUnitEl) peakUnitEl.textContent = 'MHz';
+      } else {
+        peakEl.textContent = peak_freq.toFixed(0);
+        if (peakUnitEl) peakUnitEl.textContent = 'Hz';
+      }
     }
 
     const toneInfoEl = document.getElementById('toneInfoValue');
     if (toneInfoEl) {
       if (peaks && peaks.length > 0) {
-        const freqList = peaks.map(p => p.freq.toFixed(0)).join(', ');
-        toneInfoEl.textContent = `${peaks.length} (${freqList} Hz)`;
+        let freqList;
+        if (rtlMode) {
+          freqList = peaks.map(p => (p.freq / 1e6).toFixed(4)).join(', ');
+          toneInfoEl.textContent = `${peaks.length} (${freqList} MHz)`;
+        } else {
+          freqList = peaks.map(p => p.freq.toFixed(0)).join(', ');
+          toneInfoEl.textContent = `${peaks.length} (${freqList} Hz)`;
+        }
       } else {
         toneInfoEl.textContent = '---';
+      }
+    }
+
+    // Prikaži centralnu frekvenciju u RTL modu
+    const cfEl = document.getElementById('centerFreqValue');
+    if (cfEl) {
+      if (rtlMode && fftData.target_freq_mhz) {
+        cfEl.textContent = fftData.target_freq_mhz.toFixed(3) + ' MHz';
+        cfEl.closest('.stat-item')?.classList.remove('hidden');
+      } else {
+        cfEl.closest('.stat-item')?.classList.add('hidden');
       }
     }
   }
@@ -194,12 +256,21 @@ const HorusSpectrum = (() => {
   function reset() {
     if (!chart) return;
     chart.data.datasets.forEach(ds => ds.data = []);
+    // Reset na audio mod
+    rtlMode = false;
+    rtlTargetFreqHz = 0;
+    rtlCenterFreqHz = 0;
+    chart.options.scales.x.min = 100;
+    chart.options.scales.x.max = 3500;
+    chart.options.scales.x.title.text = HorusI18n.t('spectrum.freq_axis');
     chart.update();
     document.getElementById('dbfsValue').textContent = '---';
     document.getElementById('peakFreqValue').textContent = '---';
     const toneInfo = document.getElementById('toneInfoValue');
     if (toneInfo) toneInfo.textContent = '---';
     document.getElementById('dbfsBar').style.width = '0%';
+    const cfEl = document.getElementById('centerFreqValue');
+    if (cfEl) cfEl.closest('.stat-item')?.classList.add('hidden');
   }
 
   return { init, update, reset };

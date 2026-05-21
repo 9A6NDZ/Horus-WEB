@@ -123,6 +123,53 @@ const HorusI18n = (() => {
       pl: 'Baud rate',
     },
 
+    // -- RTL-SDR Direct
+    'sidebar.rtl_sdr_direct': {
+      hr: 'RTL-SDR Direct',
+      en: 'RTL-SDR Direct',
+      pl: 'RTL-SDR Direct',
+    },
+    'sidebar.rtl_sdr_hint': {
+      hr: 'Primi signal direktno iz RTL-SDR (isključuje audio/UDP)',
+      en: 'Receive signal directly from RTL-SDR (disables audio/UDP)',
+      pl: 'Odbierz sygnał bezpośrednio z RTL-SDR (wyłącza audio/UDP)',
+    },
+    'sidebar.rtl_frequency': {
+      hr: 'Frekvencija (MHz)',
+      en: 'Frequency (MHz)',
+      pl: 'Częstotliwość (MHz)',
+    },
+    'sidebar.rtl_gain': {
+      hr: 'Gain (0=AGC)',
+      en: 'Gain (0=AGC)',
+      pl: 'Gain (0=AGC)',
+    },
+    'sidebar.rtl_ppm': {
+      hr: 'PPM offset',
+      en: 'PPM offset',
+      pl: 'PPM offset',
+    },
+    'sidebar.rtl_device': {
+      hr: 'SDR device #',
+      en: 'SDR device #',
+      pl: 'SDR device #',
+    },
+    'sidebar.rtl_bandwidth': {
+      hr: 'Bandwidth (Hz)',
+      en: 'Bandwidth (Hz)',
+      pl: 'Bandwidth (Hz)',
+    },
+    'sidebar.rtl_bias_tee': {
+      hr: 'Bias Tee (LNA power)',
+      en: 'Bias Tee (LNA power)',
+      pl: 'Bias Tee (LNA power)',
+    },
+    'sidebar.rtl_detect': {
+      hr: 'Detect RTL-SDR',
+      en: 'Detect RTL-SDR',
+      pl: 'Wykryj RTL-SDR',
+    },
+
     // -- Station
     'sidebar.station': {
       hr: 'Prijemna stanica',
@@ -165,7 +212,7 @@ const HorusI18n = (() => {
       pl: 'Antena',
     },
     'sidebar.dial_freq': {
-      hr: 'Radio dial freq (MHz)',
+      hr: 'Frekvencija radija (MHz)',
       en: 'Radio dial freq (MHz)',
       pl: 'Częstotliwość radia (MHz)',
     },
@@ -341,6 +388,8 @@ const HorusI18n = (() => {
     pl: 'Horyzont radiowy balonu' },
     'map.metar_stations': { hr: 'METAR stanice', en: 'METAR stations',
     pl: 'Stacje METAR' },
+    'map.day_night': { hr: 'Dan/noć sjena', en: 'Day/night shadow',
+    pl: 'Cień dnia/nocy' },
     'map.in_range': { hr: 'u dometu', en: 'in range',
     pl: 'w zasięgu' },
     'map.out_of_range': { hr: 'van dometa', en: 'out of range',
@@ -822,6 +871,16 @@ const HorusI18n = (() => {
     pl: 'Dekoder zatrzymany' },
     'app.unknown_device': { hr: 'nepoznat uređaj', en: 'unknown device',
     pl: 'nieznane urządzenie' },
+    'app.rtl_sdr_enabled': { hr: 'RTL-SDR Direct uključen — audio/UDP inputi isključeni', en: 'RTL-SDR Direct enabled — audio/UDP inputs disabled',
+    pl: 'RTL-SDR Direct włączony — wejścia audio/UDP wyłączone' },
+    'app.rtl_sdr_disabled': { hr: 'RTL-SDR Direct isključen — audio/UDP inputi dostupni', en: 'RTL-SDR Direct disabled — audio/UDP inputs available',
+    pl: 'RTL-SDR Direct wyłączony — wejścia audio/UDP dostępne' },
+    'app.rtl_detecting': { hr: 'Tražim RTL-SDR uređaje...', en: 'Detecting RTL-SDR devices...',
+    pl: 'Wykrywanie urządzeń RTL-SDR...' },
+    'app.rtl_not_found': { hr: 'RTL-SDR uređaj nije pronađen (ili rtl_fm nije instaliran)', en: 'No RTL-SDR devices found (or rtl_fm not installed)',
+    pl: 'Nie znaleziono urządzeń RTL-SDR (lub rtl_fm nie zainstalowany)' },
+    'app.rtl_devices_found': { hr: 'uređaj(a) pronađen(o)', en: 'device(s) found',
+    pl: 'urządzeń znaleziono' },
     'app.audio_devices': { hr: 'Dostupno {0} audio uređaja', en: '{0} audio device(s) available',
     pl: 'Dostępnych {0} urządzeń audio' },
     'app.weather_key_saved': { hr: 'Weather API ključ spremljen', en: 'Weather API key saved',

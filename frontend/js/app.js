@@ -122,6 +122,52 @@ const App = (() => {
 
     // Audio Monitor — restauriraj odabrani output uređaj i stanje
     applyMonitorConfigToUI(cfg);
+
+    // RTL-SDR — restauriraj postavke
+    applyRtlSdrConfigToUI(cfg);
+  }
+
+  function applyRtlSdrConfigToUI(cfg) {
+    if (!cfg) return;
+
+    const cb = document.getElementById('rtlSdrEnabled');
+    const fields = document.getElementById('rtlSdrFields');
+    const audioSection = document.getElementById('audioInputSection');
+
+    if (!cb) return;
+
+    // Restauriraj RTL-SDR vrijednosti
+    if (cfg.rtl_frequency !== undefined) {
+      const el = document.getElementById('rtlFrequency');
+      if (el) el.value = cfg.rtl_frequency;
+    }
+    if (cfg.rtl_gain !== undefined) {
+      const el = document.getElementById('rtlGain');
+      if (el) el.value = cfg.rtl_gain;
+    }
+    if (cfg.rtl_ppm !== undefined) {
+      const el = document.getElementById('rtlPpm');
+      if (el) el.value = cfg.rtl_ppm;
+    }
+    if (cfg.rtl_device !== undefined) {
+      const el = document.getElementById('rtlDevice');
+      if (el) el.value = cfg.rtl_device;
+    }
+    if (cfg.rtl_bandwidth !== undefined) {
+      const el = document.getElementById('rtlBandwidth');
+      if (el) el.value = cfg.rtl_bandwidth;
+    }
+    if (cfg.rtl_bias_tee !== undefined) {
+      const el = document.getElementById('rtlBiasTee');
+      if (el) el.checked = cfg.rtl_bias_tee;
+    }
+
+    // Ako je RTL-SDR bio zadnje korišten, uključi checkbox i pokaži polja
+    if (cfg.use_rtl_sdr) {
+      cb.checked = true;
+      if (fields) fields.classList.remove('hidden');
+      if (audioSection) audioSection.classList.add('hidden');
+    }
   }
 
   function applyMonitorConfigToUI(cfg) {
@@ -301,6 +347,16 @@ const App = (() => {
       monitorCb.addEventListener('change', toggleAudioMonitor);
     }
 
+    // RTL-SDR toggle
+    const rtlCb = document.getElementById('rtlSdrEnabled');
+    if (rtlCb) {
+      rtlCb.addEventListener('change', toggleRtlSdr);
+    }
+    const rtlDetectBtn = document.getElementById('rtlDetectBtn');
+    if (rtlDetectBtn) {
+      rtlDetectBtn.addEventListener('click', detectRtlSdr);
+    }
+
     const csSelect = document.getElementById('callsignSelect');
     if (csSelect) csSelect.addEventListener('change', onCallsignSelectChange);
 
@@ -340,6 +396,11 @@ const App = (() => {
 
     const metarCb = document.getElementById('showMetarStations');
     if (metarCb) metarCb.addEventListener('change', onMetarToggle);
+
+    const dayNightCb = document.getElementById('showDayNight');
+    if (dayNightCb) dayNightCb.addEventListener('change', (e) => {
+      HorusMap.setDayNightTerminator(e.target.checked);
+    });
 
     // ABOUT MODAL
     const aboutBtn = document.getElementById('aboutBtn');
@@ -1212,23 +1273,91 @@ const App = (() => {
     });
   }
 
+  function toggleRtlSdr() {
+    const cb = document.getElementById('rtlSdrEnabled');
+    const fields = document.getElementById('rtlSdrFields');
+    const audioSection = document.getElementById('audioInputSection');
+
+    if (cb.checked) {
+      // RTL-SDR uključen — pokaži RTL polja, sakrij audio input
+      if (fields) fields.classList.remove('hidden');
+      if (audioSection) audioSection.classList.add('hidden');
+      log('INFO', HorusI18n.t('app.rtl_sdr_enabled'));
+    } else {
+      // RTL-SDR isključen — sakrij RTL polja, pokaži audio input
+      if (fields) fields.classList.add('hidden');
+      if (audioSection) audioSection.classList.remove('hidden');
+      log('INFO', HorusI18n.t('app.rtl_sdr_disabled'));
+    }
+  }
+
+  async function detectRtlSdr() {
+    const statusEl = document.getElementById('rtlSdrStatus');
+    try {
+      if (statusEl) {
+        statusEl.textContent = HorusI18n.t('app.rtl_detecting');
+        statusEl.className = 'text-xs text-slate-400 mt-1';
+        statusEl.classList.remove('hidden');
+      }
+      const r = await fetch('/api/rtl-sdr/detect');
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      const devices = data.devices || [];
+
+      if (devices.length === 0) {
+        if (statusEl) {
+          statusEl.textContent = HorusI18n.t('app.rtl_not_found');
+          statusEl.className = 'text-xs text-amber-400 mt-1';
+        }
+        log('WARN', HorusI18n.t('app.rtl_not_found'));
+      } else {
+        const lines = devices.map(d => `${d.index}: ${d.name}${d.gain_range ? ' (tuner gains: ' + d.gain_range + ')' : ''}`);
+        if (statusEl) {
+          statusEl.innerHTML = `<span class="text-emerald-400">✓ ${devices.length} RTL-SDR ${HorusI18n.t('app.rtl_devices_found')}</span><br>` + lines.join('<br>');
+          statusEl.className = 'text-xs text-slate-400 mt-1';
+        }
+        log('INFO', `RTL-SDR: ${devices.length} ${HorusI18n.t('app.rtl_devices_found')}: ${lines.join(', ')}`);
+      }
+    } catch (e) {
+      if (statusEl) {
+        statusEl.textContent = `⚠ ${e.message}`;
+        statusEl.className = 'text-xs text-red-400 mt-1';
+      }
+      log('ERROR', `RTL-SDR detect: ${e.message}`);
+    }
+  }
+
   async function toggleDecoder() {
     const btn = document.getElementById('startStopBtn');
     const isRunning = btn.dataset.running === 'true';
 
     if (!isRunning) {
+      const rtlEnabled = document.getElementById('rtlSdrEnabled')?.checked || false;
       const audioSel = document.getElementById('audioDevice');
       const opt = audioSel.options[audioSel.selectedIndex];
-      const isUdp = opt?.dataset.udp === '1';
+      const isUdp = !rtlEnabled && (opt?.dataset.udp === '1');
 
       const payload = {
-        audio_device: isUdp ? null : parseInt(audioSel.value, 10),
+        audio_device: (isUdp || rtlEnabled) ? null : parseInt(audioSel.value, 10),
         sample_rate: parseInt(document.getElementById('sampleRate').value, 10),
         modem: document.getElementById('modemSelect').value,
         baud_rate: parseInt(document.getElementById('baudRate').value, 10),
         use_udp: isUdp,
         udp_port: 7355,
+        use_rtl_sdr: rtlEnabled,
       };
+
+      // Dodaj RTL-SDR parametre ako je RTL aktivan
+      if (rtlEnabled) {
+        payload.rtl_frequency = parseFloat(document.getElementById('rtlFrequency').value) || 437.600;
+        payload.rtl_gain = parseInt(document.getElementById('rtlGain').value, 10) || 0;
+        payload.rtl_ppm = parseInt(document.getElementById('rtlPpm').value, 10) || 0;
+        payload.rtl_device = parseInt(document.getElementById('rtlDevice').value, 10) || 0;
+        payload.rtl_bandwidth = parseInt(document.getElementById('rtlBandwidth').value, 10) || 3000;
+        payload.rtl_bias_tee = document.getElementById('rtlBiasTee')?.checked || false;
+        // Za RTL-SDR sample rate je fiksan na 48000 (rtl_fm resamplira)
+        payload.sample_rate = 48000;
+      }
 
       try {
         const r = await fetch('/api/start', {
@@ -1238,7 +1367,10 @@ const App = (() => {
         });
         if (!r.ok) throw new Error(await r.text());
         setRunning(true);
-        log('INFO', `${HorusI18n.t('app.decoder_started')} (${opt?.textContent || HorusI18n.t('app.unknown_device')})`);
+        const srcName = rtlEnabled
+          ? `RTL-SDR @ ${payload.rtl_frequency} MHz`
+          : (opt?.textContent || HorusI18n.t('app.unknown_device'));
+        log('INFO', `${HorusI18n.t('app.decoder_started')} (${srcName})`);
       } catch (e) {
         log('ERROR', HorusI18n.t('app.start_failed', e.message));
       }
