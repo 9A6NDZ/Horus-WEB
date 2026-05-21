@@ -32,7 +32,7 @@ logging.basicConfig(
 log = logging.getLogger("horus-web")
 
 # Trenutna verzija programa — ažuriraj ovdje pri svakom releasu
-CURRENT_VERSION = "1.5"
+CURRENT_VERSION = "1.6"
 
 # GitHub raw URL za provjeru nove verzije
 UPDATE_CHECK_URL = "https://raw.githubusercontent.com/9A6NDZ/Horus-WEB/main/version.json"
@@ -278,6 +278,14 @@ class StartRequest(BaseModel):
     baud_rate: int = 100
     use_udp: bool = False
     udp_port: int = 7355
+    # RTL-SDR Direct
+    use_rtl_sdr: bool = False
+    rtl_frequency: float = 437.600
+    rtl_gain: int = 0
+    rtl_ppm: int = 0
+    rtl_device: int = 0
+    rtl_bandwidth: int = 3000
+    rtl_bias_tee: bool = False
 
 
 class StationConfig(BaseModel):
@@ -326,6 +334,14 @@ async def api_audio_devices():
     if not bridge:
         raise HTTPException(503, "Bridge not ready")
     return bridge.list_audio_devices()
+
+
+@app.get("/api/rtl-sdr/detect")
+async def api_rtl_sdr_detect():
+    """Detektiraj spojene RTL-SDR uređaje."""
+    from horus_bridge import HorusBridge
+    devices = HorusBridge.detect_rtl_sdr_devices()
+    return {"devices": devices}
 
 
 @app.get("/api/modems")
@@ -454,6 +470,13 @@ async def api_start(req: StartRequest):
             baud_rate=req.baud_rate,
             use_udp=req.use_udp,
             udp_port=req.udp_port,
+            use_rtl_sdr=req.use_rtl_sdr,
+            rtl_frequency=req.rtl_frequency,
+            rtl_gain=req.rtl_gain,
+            rtl_ppm=req.rtl_ppm,
+            rtl_device=req.rtl_device,
+            rtl_bandwidth=req.rtl_bandwidth,
+            rtl_bias_tee=req.rtl_bias_tee,
         )
 
         # Zapamti postavke - IME uređaja je stabilnije od indeksa.
@@ -479,6 +502,13 @@ async def api_start(req: StartRequest):
             "baud_rate": req.baud_rate,
             "use_udp": req.use_udp,
             "udp_port": req.udp_port,
+            "use_rtl_sdr": req.use_rtl_sdr,
+            "rtl_frequency": req.rtl_frequency,
+            "rtl_gain": req.rtl_gain,
+            "rtl_ppm": req.rtl_ppm,
+            "rtl_device": req.rtl_device,
+            "rtl_bandwidth": req.rtl_bandwidth,
+            "rtl_bias_tee": req.rtl_bias_tee,
         })
 
         return {"ok": True, "message": "Decoding started"}

@@ -11,6 +11,7 @@ horus-gui kao paket.
 """
 
 import logging
+import subprocess
 import sys
 import time
 from collections import deque
@@ -102,6 +103,8 @@ class HorusBridge:
         self.stream = None
         self.modem = None
         self.udp_thread: Optional[Thread] = None
+        self.rtl_process: Optional[subprocess.Popen] = None
+        self.rtl_thread: Optional[Thread] = None
 
         # FFT / spectrum tracking
         self.sample_rate = 48000
@@ -110,7 +113,14 @@ class HorusBridge:
         self.nfft = 8192
         self.fft_stride = 8192
         self.sample_buffer = bytearray(b"")
-        self.fft_range = (100, 4000)  # Hz, gornji/donji limit prikaza
+        self.fft_range = (100, 3500)  # Hz, gornji/donji limit prikaza (za audio mod)
+
+        # RTL-SDR IQ mod za FFT — kad je aktivan, FFT radi na kompleksnom IQ
+        # signalu i frekvencijska skala je centrirana oko RF frekvencije
+        self.rtl_mode = False
+        self.rtl_center_freq_hz = 0  # stvarna SDR tune frekvencija
+        self.rtl_target_freq_hz = 0  # zadana RF frekvencija (npr. 437600000)
+        self.rtl_offset_hz = 0       # offset = target - sdr_tune
         self.fft_window = None
         self.fft_scale = None
         self.fft_mask = None
@@ -361,6 +371,13 @@ class HorusBridge:
         baud_rate: int = 100,
         use_udp: bool = False,
         udp_port: int = 7355,
+        use_rtl_sdr: bool = False,
+        rtl_frequency: float = 437.600,
+        rtl_gain: int = 0,
+        rtl_ppm: int = 0,
+        rtl_device: int = 0,
+        rtl_bandwidth: int = 3000,
+        rtl_bias_tee: bool = False,
     ):
         if self.running:
             log.warning("Already running, ignoring start request.")
@@ -383,22 +400,41 @@ class HorusBridge:
         self._init_fft()
 
         # Setup modem
+        # Kad je RTL-SDR aktivan, rtl_fm -M raw outputira IQ parove (I,Q,I,Q...)
+        # pa moramo koristiti stereo_iq=True (ekvivalent -q flaga u horus_demod).
+        # Ovo je kako rade sve novije oficijalne skripte (start_rtlsdr.sh, itd.)
         self.modem = HorusLib(
             mode=mode_id,
             rate=baud_rate,
             tone_spacing=tone_spacing,
+            stereo_iq=use_rtl_sdr,
             callback=self._on_packet,
             sample_rate=sample_rate,
         )
 
-        # Setup audio
-        if use_udp:
+        # VAŽNO: postavi running=True PRIJE pokretanja audio izvora
+        # jer rtl_reader i udp_loop threadovi provjeravaju self.running u petlji
+        self.running = True
+
+        # Setup audio source
+        if use_rtl_sdr:
+            freq_hz = int(rtl_frequency * 1e6)
+            self._start_rtl_sdr(
+                frequency_hz=freq_hz,
+                gain=rtl_gain,
+                ppm_offset=rtl_ppm,
+                device_index=rtl_device,
+                bandwidth=rtl_bandwidth,
+                bias_tee=rtl_bias_tee,
+                sample_rate=sample_rate,
+            )
+        elif use_udp:
             self._start_udp(sample_rate, udp_port)
         else:
             self._start_pyaudio(audio_device, sample_rate)
 
-        self.running = True
-        log.info(f"Started: modem={modem} rate={baud_rate} fs={sample_rate}")
+        src = "RTL-SDR" if use_rtl_sdr else ("UDP" if use_udp else "PyAudio")
+        log.info(f"Started: modem={modem} rate={baud_rate} fs={sample_rate} src={src}")
 
     def stop(self):
         if not self.running:
@@ -412,6 +448,9 @@ class HorusBridge:
         except Exception as e:
             log.exception(f"Error closing stream: {e}")
 
+        # Zaustavi RTL-SDR ako je aktivan
+        self._stop_rtl_sdr()
+
         try:
             if self.modem:
                 self.modem.close()
@@ -423,6 +462,10 @@ class HorusBridge:
         self.stop_monitor()
 
         self.running = False
+        self.rtl_mode = False
+        self.rtl_center_freq_hz = 0
+        self.rtl_target_freq_hz = 0
+        self.rtl_offset_hz = 0
         self.sample_buffer = bytearray(b"")
         self.peak_hold = None
         self.snr_history.clear()
@@ -637,6 +680,316 @@ class HorusBridge:
         self.udp_thread.start()
 
     # ------------------------------------------------------------------
+    # RTL-SDR Direct — koristi rtl_fm za direktan prijem
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _find_rtl_tool(name: str) -> Optional[str]:
+        """
+        Pronađi RTL-SDR alat (rtl_fm, rtl_test itd.).
+        Traži redom:
+          1. Isti folder gdje je horus_bridge.py (backend root)
+          2. backend/rtl-sdr/ podfolder
+          3. PyInstaller _internal/rtl-sdr/ (frozen .exe build)
+          4. Folder gdje je .exe (PyInstaller frozen)
+          5. Sistemski PATH
+        Na Windowsu dodaje .exe ako treba.
+        """
+        import platform
+        import shutil
+
+        base_dir = Path(__file__).parent
+        exe = f"{name}.exe" if platform.system() == "Windows" else name
+
+        # 1. Isti folder kao backend
+        local = base_dir / exe
+        if local.is_file():
+            return str(local)
+
+        # 2. rtl-sdr podfolder
+        sub = base_dir / "rtl-sdr" / exe
+        if sub.is_file():
+            return str(sub)
+
+        # 3. PyInstaller frozen: _MEIPASS / rtl-sdr
+        if getattr(sys, 'frozen', False):
+            meipass = Path(sys._MEIPASS)
+            frozen_sub = meipass / "rtl-sdr" / exe
+            if frozen_sub.is_file():
+                return str(frozen_sub)
+            # 4. Folder gdje je .exe
+            exe_dir = Path(sys.executable).parent
+            exe_local = exe_dir / exe
+            if exe_local.is_file():
+                return str(exe_local)
+            exe_sub = exe_dir / "rtl-sdr" / exe
+            if exe_sub.is_file():
+                return str(exe_sub)
+
+        # 5. Sistemski PATH
+        found = shutil.which(name)
+        if found:
+            return found
+
+        return None
+
+    def _start_rtl_sdr(self, frequency_hz: int, gain: int = 0,
+                       ppm_offset: int = 0, device_index: int = 0,
+                       bandwidth: int = 3000, bias_tee: bool = False,
+                       sample_rate: int = 48000):
+        """
+        Pokreni rtl_fm proces za Horus Binary dekodiranje.
+
+        Koristi se identična konfiguracija kao u oficijlanoj docker_single.sh:
+          rtl_fm -M raw -F9 -s 48000 -f <freq>
+
+        -M raw = sirovi signed 16-bit IQ (interleaved I,Q,I,Q,...)
+        -s 48000 = sample rate
+        -F9 = FIR decimation filter size 9
+
+        horus_demod (i HorusLib C wrapper) očekuje upravo ovaj format.
+        """
+        rtl_fm_path = self._find_rtl_tool("rtl_fm")
+        if not rtl_fm_path:
+            raise RuntimeError(
+                "rtl_fm not found. Stavi rtl_fm(.exe) u isti folder kao main.py, "
+                "ili u podfolder rtl-sdr/, ili instaliraj rtl-sdr alate u PATH."
+            )
+
+        # -M raw = signed int16 IQ parovi (I,Q,I,Q,...) — isti format
+        # koji koristi oficijalna docker_single.sh skripta.
+        # -F9 = FIR decimation filter
+        # -s 48000 = sample rate
+        #
+        # Direktno tuniranje na traženu frekvenciju (bez offset-a)
+        sdr_freq = frequency_hz
+
+        # Postavi RTL mod za FFT — kompleksni IQ FFT s RF frekvencijskom osi
+        self.rtl_mode = True
+        self.rtl_center_freq_hz = sdr_freq
+        self.rtl_target_freq_hz = frequency_hz
+        self.rtl_offset_hz = 0
+
+        cmd = [
+            rtl_fm_path,
+            "-M", "raw",
+            "-F9",
+            "-s", str(sample_rate),
+            "-p", str(ppm_offset),
+            "-d", str(device_index),
+        ]
+        if gain > 0:
+            cmd.extend(["-g", str(gain)])
+        if bias_tee:
+            cmd.extend(["-T"])
+        cmd.extend(["-f", str(sdr_freq)])
+
+        log.info(f"RTL-SDR starting: {' '.join(cmd)}")
+        log.info(f"  Target freq: {frequency_hz} Hz, SDR tuned: {sdr_freq} Hz (direct, no offset)")
+        log.info(f"  Signal should appear at center of spectrum")
+
+        try:
+            self.rtl_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to start rtl_fm: {e}")
+
+        def rtl_reader():
+            """Čitaj IQ podatke iz rtl_fm i šalji u modem + FFT + monitor."""
+            # rtl_fm -M raw -s 48000 outputira signed int16 IQ parove
+            # 48000 IQ parova/sek × 2 kanala × 2 bajta = 192000 bajtova/sek
+            block_size = 8192 * 2
+            blocks_read = 0
+            prev_phase = 0.0  # za FM demodulaciju za audio monitor
+
+            while self.running and self.rtl_process and self.rtl_process.poll() is None:
+                try:
+                    data = self.rtl_process.stdout.read(block_size)
+                    if not data:
+                        break
+                    blocks_read += 1
+
+                    if blocks_read <= 3:
+                        iq = np.frombuffer(data, dtype=np.int16)
+                        raw_peak = int(np.max(np.abs(iq))) if len(iq) > 0 else 0
+                        log.info(
+                            f"RTL-SDR block #{blocks_read}: {len(data)} bytes IQ, "
+                            f"raw_peak={raw_peak}"
+                        )
+
+                    # 1) MODEM — šalji sirove IQ bajtove DIREKTNO
+                    #    HorusLib interno radi FSK detekciju na IQ podacima
+                    if self.modem:
+                        try:
+                            _stats = self.modem.add_samples(data)
+                            if _stats is not None:
+                                try:
+                                    snr = float(_stats.snr)
+                                    self.snr_history.append(snr)
+                                    self.status_callback({"type": "modem_stats", "snr": snr})
+                                except (AttributeError, TypeError):
+                                    pass
+                                try:
+                                    f_ests = _stats.extended_stats.f_est
+                                    valid_fests = [float(f) for f in f_ests if float(f) != 0.0]
+                                    if valid_fests:
+                                        self.last_fest_average = sum(valid_fests) / len(valid_fests)
+                                except (AttributeError, TypeError):
+                                    pass
+                        except Exception as e:
+                            log.exception(f"RTL-SDR modem error: {e}")
+
+                    # 2) FFT — šalji sirove IQ podatke DIREKTNO na FFT
+                    #    U RTL modu, _process_fft_samples radi kompleksni FFT
+                    #    na IQ parovima i prikazuje pravi RF spektar.
+                    self._process_fft_samples(data)
+
+                    # 3) AUDIO MONITOR — FM demodulacija IQ → mono audio
+                    #    Samo za preslušavanje (zvučnik), ne za FFT prikaz.
+                    if self.monitor_enabled:
+                        try:
+                            iq = np.frombuffer(data, dtype=np.int16)
+                            if len(iq) >= 4:
+                                i_ch = iq[0::2].astype(np.float64)
+                                q_ch = iq[1::2].astype(np.float64)
+
+                                # Izračunaj instantanu fazu
+                                phase = np.arctan2(q_ch, i_ch)
+
+                                # FM demodulacija: diferencijalna faza
+                                dphase = np.diff(phase)
+                                dphase = np.where(dphase > np.pi, dphase - 2*np.pi, dphase)
+                                dphase = np.where(dphase < -np.pi, dphase + 2*np.pi, dphase)
+
+                                # Skaliraj na int16 raspon
+                                audio = (dphase * (32767.0 / np.pi)).clip(-32767, 32767).astype(np.int16)
+                                audio_data = audio.tobytes()
+
+                                try:
+                                    self._monitor_queue.put_nowait(audio_data)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                except Exception as e:
+                    if self.running:
+                        log.exception(f"RTL-SDR read error: {e}")
+                    break
+
+            log.info(f"RTL-SDR reader thread ended after {blocks_read} blocks.")
+
+        def rtl_stderr_reader():
+            """Čitaj rtl_fm stderr poruke (info, upozorenja) u realnom vremenu."""
+            try:
+                for line in iter(self.rtl_process.stderr.readline, b''):
+                    msg = line.decode('utf-8', errors='replace').strip()
+                    if msg:
+                        log.info(f"rtl_fm: {msg}")
+            except Exception:
+                pass
+
+        self.rtl_thread = Thread(target=rtl_reader, daemon=True)
+        self.rtl_thread.start()
+        # Stderr reader — da vidimo rtl_fm poruke u logu
+        Thread(target=rtl_stderr_reader, daemon=True).start()
+
+    def _stop_rtl_sdr(self):
+        """Zaustavi rtl_fm proces."""
+        if self.rtl_process:
+            try:
+                self.rtl_process.terminate()
+                self.rtl_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.rtl_process.kill()
+            except Exception as e:
+                log.warning(f"Error stopping rtl_fm: {e}")
+            self.rtl_process = None
+        self.rtl_thread = None
+
+    @staticmethod
+    def detect_rtl_sdr_devices() -> list[dict]:
+        """Detektiraj spojene RTL-SDR uređaje pomoću rtl_test."""
+        result = []
+
+        # Provjeri da li je rtl_fm dostupan
+        rtl_fm_path = HorusBridge._find_rtl_tool("rtl_fm")
+        if not rtl_fm_path:
+            return result
+
+        # Koristi rtl_test -t za detekciju uređaja (kratki test)
+        rtl_test_path = HorusBridge._find_rtl_tool("rtl_test")
+
+        # Pokušaj sa rtl_test prvo
+        try:
+            proc = subprocess.run(
+                [rtl_test_path or "rtl_test", "-t"],
+                capture_output=True, text=True, timeout=5,
+            )
+            output = proc.stderr + proc.stdout
+            # Parsiraj output za uređaje
+            # Tipični output: "Found 1 device(s):"
+            #                  "  0:  Realtek, RTL2838UHIDIR, SN: 00000001"
+            import re
+            device_lines = re.findall(
+                r'(\d+):\s+(.+?)(?:,\s*(.+?))?(?:,\s*SN:\s*(\S+))?$',
+                output, re.MULTILINE,
+            )
+            for match in device_lines:
+                idx = int(match[0])
+                name = match[1].strip()
+                model = match[2].strip() if match[2] else ""
+                sn = match[3].strip() if match[3] else ""
+                full_name = f"{name}"
+                if model:
+                    full_name += f" {model}"
+                result.append({
+                    "index": idx,
+                    "name": full_name,
+                    "serial": sn,
+                })
+
+            # Ako nismo dobili uređaje iz parsiranja, ali output sadrži "Found N device"
+            if not result:
+                found_match = re.search(r'Found (\d+) device', output)
+                if found_match and int(found_match.group(1)) > 0:
+                    # Parsiraj gain range
+                    gain_match = re.search(
+                        r'Supported gain values.*?:\s*([\d., ]+)', output
+                    )
+                    gain_range = gain_match.group(1).strip() if gain_match else ""
+                    result.append({
+                        "index": 0,
+                        "name": "RTL-SDR",
+                        "serial": "",
+                        "gain_range": gain_range,
+                    })
+
+            # Dohvati gain range iz rtl_test outputa
+            import re as _re
+            gain_match = _re.search(
+                r'Supported gain values.*?:\s*([\d., ]+)', output
+            )
+            if gain_match and result:
+                gain_str = gain_match.group(1).strip()
+                gains = [float(g.strip()) for g in gain_str.split(',') if g.strip()]
+                for dev in result:
+                    dev["gain_range"] = f"{min(gains):.1f}-{max(gains):.1f} dB" if gains else ""
+                    dev["gains"] = gains
+
+        except FileNotFoundError:
+            log.warning("rtl_test not found, trying rtl_fm detection")
+        except subprocess.TimeoutExpired:
+            log.warning("rtl_test timed out")
+        except Exception as e:
+            log.warning(f"RTL-SDR detection error: {e}")
+
+        return result
+
+    # ------------------------------------------------------------------
     # SondeHub Amateur uploader
     # ------------------------------------------------------------------
     def set_sondehub_config(self, enabled: bool, callsign: str,
@@ -684,7 +1037,7 @@ class HorusBridge:
                 user_radio=radio or "",
                 user_antenna=antenna,
                 software_name="Horus-Web",
-                software_version="1.5",
+                software_version="1.6",
             )
             self.sondehub_uploader.inhibit = not enabled
             log.info(f"SondeHub uploader created: callsign={callsign} enabled={enabled}")
@@ -762,7 +1115,7 @@ class HorusBridge:
                 user_radio=radio or "",
                 user_antenna=antenna,
                 software_name="Horus-Web",
-                software_version="1.5",
+                software_version="1.6",
             )
             self.sondehub_uploader.inhibit = not cfg.get("enabled", False)
 
@@ -958,11 +1311,37 @@ class HorusBridge:
     def _init_fft(self):
         """Inicijaliziraj FFT prozor i frekvencijsku skalu."""
         self.fft_window = np.hanning(self.nfft).astype(np.float64)
-        # Frekvencije bin-ova (neg./poz., pa shift da raste redom)
-        freqs = np.fft.fftshift(np.fft.fftfreq(self.nfft, d=1.0 / self.sample_rate))
-        self.fft_scale = freqs
-        # Maska za range 100-4000 Hz (samo taj dio šaljemo na frontend)
-        self.fft_mask = (freqs >= self.fft_range[0]) & (freqs <= self.fft_range[1])
+
+        if self.rtl_mode:
+            # RTL-SDR IQ mod: FFT na kompleksnom signalu
+            # Frekvencijski raspon je ±sample_rate/2 oko SDR tune frekvencije
+            # fftfreq za complex FFT daje [-fs/2, ..., 0, ..., fs/2-1]
+            baseband_freqs = np.fft.fftshift(
+                np.fft.fftfreq(self.nfft, d=1.0 / self.sample_rate)
+            )
+            # Apsolutne RF frekvencije = SDR_tune_freq + baseband_offset
+            self.fft_scale = baseband_freqs + self.rtl_center_freq_hz
+
+            # Maska: prikaži ±(sample_rate/2 - 500) Hz oko centra SDR-a
+            # tj. skoro cijeli raspon osim rubova
+            margin = 500  # Hz od rubova
+            freq_low = self.rtl_center_freq_hz - self.sample_rate / 2 + margin
+            freq_high = self.rtl_center_freq_hz + self.sample_rate / 2 - margin
+            self.fft_mask = (self.fft_scale >= freq_low) & (self.fft_scale <= freq_high)
+            log.info(
+                f"FFT init (RTL IQ mode): center={self.rtl_center_freq_hz} Hz, "
+                f"target={self.rtl_target_freq_hz} Hz, "
+                f"offset={self.rtl_offset_hz} Hz, "
+                f"display range: {freq_low:.0f} - {freq_high:.0f} Hz"
+            )
+        else:
+            # Audio mod: klasični prikaz 100-4000 Hz
+            freqs = np.fft.fftshift(
+                np.fft.fftfreq(self.nfft, d=1.0 / self.sample_rate)
+            )
+            self.fft_scale = freqs
+            self.fft_mask = (freqs >= self.fft_range[0]) & (freqs <= self.fft_range[1])
+
         self.sample_buffer = bytearray(b"")
         self.fft_last_emit = 0.0
 
@@ -970,6 +1349,11 @@ class HorusBridge:
         """
         Dodaj bytes u buffer i kad je dovoljno uzoraka, napravi FFT.
         Rezultat se šalje preko status_callback s tipom 'fft'.
+
+        U RTL modu: raw_data su IQ parovi (int16 I, int16 Q, ...) i radi se
+        kompleksni FFT koji prikazuje pravi RF spektar centriran oko tune frekvencije.
+
+        U audio modu: raw_data je mono audio (int16) i radi se realni FFT.
         """
         if self.fft_window is None:
             if not hasattr(self, '_fft_warning_logged'):
@@ -978,34 +1362,66 @@ class HorusBridge:
             return
 
         self.sample_buffer += raw_data
-        bytes_needed = self.nfft * 2  # int16 = 2 bytes
+
+        if self.rtl_mode:
+            # IQ mod: trebamo nfft IQ parova = nfft * 4 bytes (2x int16 po paru)
+            bytes_needed = self.nfft * 4
+        else:
+            # Audio mod: trebamo nfft samplea = nfft * 2 bytes (int16)
+            bytes_needed = self.nfft * 2
+
         if len(self.sample_buffer) < bytes_needed:
             return
 
         # Rate-limit
         now = time.time()
         if now - self.fft_last_emit < self.fft_min_interval:
-            self.sample_buffer = self.sample_buffer[self.fft_stride * 2:]
+            if self.rtl_mode:
+                self.sample_buffer = self.sample_buffer[self.nfft * 4:]
+            else:
+                self.sample_buffer = self.sample_buffer[self.fft_stride * 2:]
             return
         self.fft_last_emit = now
 
         try:
-            samples = np.frombuffer(
-                bytes(self.sample_buffer[:bytes_needed]), dtype=np.int16
-            ).astype(np.float64) / 32768.0
-            self.sample_buffer = self.sample_buffer[self.fft_stride * 2:]
+            if self.rtl_mode:
+                # === RTL IQ MOD: kompleksni FFT ===
+                iq_raw = np.frombuffer(
+                    bytes(self.sample_buffer[:bytes_needed]), dtype=np.int16
+                ).astype(np.float64) / 32768.0
+                self.sample_buffer = self.sample_buffer[self.nfft * 4:]
 
-            # Peak dBFS iz time domain-a
-            peak = float(np.abs(samples).max())
-            dbfs = 20.0 * np.log10(peak) if peak > 0 else -120.0
+                # Razdvoji I i Q kanale i napravi kompleksni signal
+                i_ch = iq_raw[0::2]
+                q_ch = iq_raw[1::2]
+                iq_complex = i_ch + 1j * q_ch
 
-            # FFT u dB
-            spectrum = np.fft.fftshift(np.fft.fft(samples * self.fft_window))
-            magnitudes = np.abs(spectrum)
-            magnitudes = np.where(magnitudes > 0, magnitudes, 1e-12)
-            spectrum_db = 20.0 * np.log10(magnitudes) - 20.0 * np.log10(self.nfft)
+                # Peak dBFS iz IQ magnitude
+                peak = float(np.abs(iq_complex).max())
+                dbfs = 20.0 * np.log10(peak) if peak > 0 else -120.0
 
-            # Ograniči na audio range
+                # Kompleksni FFT — daje puni spektar oko centra
+                spectrum = np.fft.fftshift(np.fft.fft(iq_complex * self.fft_window))
+                magnitudes = np.abs(spectrum)
+                magnitudes = np.where(magnitudes > 0, magnitudes, 1e-12)
+                spectrum_db = 20.0 * np.log10(magnitudes) - 20.0 * np.log10(self.nfft)
+
+            else:
+                # === AUDIO MOD: realni FFT (originalni kod) ===
+                samples = np.frombuffer(
+                    bytes(self.sample_buffer[:self.nfft * 2]), dtype=np.int16
+                ).astype(np.float64) / 32768.0
+                self.sample_buffer = self.sample_buffer[self.fft_stride * 2:]
+
+                peak = float(np.abs(samples).max())
+                dbfs = 20.0 * np.log10(peak) if peak > 0 else -120.0
+
+                spectrum = np.fft.fftshift(np.fft.fft(samples * self.fft_window))
+                magnitudes = np.abs(spectrum)
+                magnitudes = np.where(magnitudes > 0, magnitudes, 1e-12)
+                spectrum_db = 20.0 * np.log10(magnitudes) - 20.0 * np.log10(self.nfft)
+
+            # Ograniči na prikazni range (audio 100-4000 Hz ili IQ RF range)
             freqs_out = self.fft_scale[self.fft_mask]
             spectrum_out = spectrum_db[self.fft_mask]
 
@@ -1060,10 +1476,11 @@ class HorusBridge:
                 pass
 
             if not hasattr(self, '_fft_logged'):
-                log.info(f"First FFT: {len(freqs_small)} points, dBFS={dbfs:.1f}, bin_width={self.sample_rate/self.nfft:.1f} Hz")
+                mode_str = "IQ" if self.rtl_mode else "audio"
+                log.info(f"First FFT ({mode_str}): {len(freqs_small)} points, dBFS={dbfs:.1f}, bin_width={self.sample_rate/self.nfft:.1f} Hz")
                 self._fft_logged = True
 
-            self.status_callback({
+            fft_payload = {
                 "type": "fft",
                 "freqs": freqs_small.round(1).tolist(),
                 "spectrum": spec_small.round(1).tolist(),
@@ -1072,7 +1489,16 @@ class HorusBridge:
                 "peak_freq": float(freqs_out[int(np.argmax(spectrum_out))]),
                 "peaks": top_peaks,
                 "noise_floor": round(median_db, 1),
-            })
+            }
+
+            # U RTL modu dodaj info za frontend da zna prikazati RF frekvencije
+            if self.rtl_mode:
+                fft_payload["rtl_mode"] = True
+                fft_payload["center_freq_hz"] = self.rtl_center_freq_hz
+                fft_payload["target_freq_hz"] = self.rtl_target_freq_hz
+                fft_payload["target_freq_mhz"] = self.rtl_target_freq_hz / 1e6
+
+            self.status_callback(fft_payload)
         except Exception as e:
             log.exception(f"FFT error: {e}")
 
