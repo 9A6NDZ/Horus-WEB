@@ -102,7 +102,7 @@
         </div>
         <div>
           <h1 class="text-lg font-semibold leading-none">Horus Web</h1>
-          <p class="text-xs text-slate-400">Balloon Telemetry Decoder v1.5</p>
+          <p class="text-xs text-slate-400">Balloon Telemetry Decoder v1.6</p>
         </div>
       </div>
 
@@ -158,6 +158,57 @@
           </button>
         </div>
         <div class="collapsible-panel-body space-y-3 mt-3" data-panel-id="sidebar-audio">
+
+          <!-- RTL-SDR Direct -->
+          <div class="border border-slate-700 rounded-lg p-3 space-y-3">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="rtlSdrEnabled" type="checkbox" class="accent-brand-500 w-4 h-4" />
+              <span class="text-sm font-semibold text-brand-400" data-i18n="sidebar.rtl_sdr_direct">RTL-SDR Direct</span>
+            </label>
+            <p class="text-xs text-slate-500" data-i18n="sidebar.rtl_sdr_hint">Primi signal direktno iz RTL-SDR (isključuje audio/UDP)</p>
+
+            <div id="rtlSdrFields" class="space-y-2 hidden">
+              <div>
+                <label class="text-xs text-slate-400" data-i18n="sidebar.rtl_frequency">Frekvencija (MHz)</label>
+                <input id="rtlFrequency" type="number" step="0.001" value="437.600" placeholder="437.600" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-xs text-slate-400" data-i18n="sidebar.rtl_gain">Gain (0=AGC)</label>
+                  <input id="rtlGain" type="number" step="1" value="0" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                </div>
+                <div>
+                  <label class="text-xs text-slate-400" data-i18n="sidebar.rtl_ppm">PPM offset</label>
+                  <input id="rtlPpm" type="number" step="1" value="0" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-xs text-slate-400" data-i18n="sidebar.rtl_device">SDR device #</label>
+                  <input id="rtlDevice" type="number" step="1" value="0" min="0" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                </div>
+                <div>
+                  <label class="text-xs text-slate-400" data-i18n="sidebar.rtl_bandwidth">Bandwidth (Hz)</label>
+                  <input id="rtlBandwidth" type="number" step="100" value="3000" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" />
+                </div>
+              </div>
+
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input id="rtlBiasTee" type="checkbox" class="accent-brand-500 w-4 h-4" />
+                <span class="text-xs text-slate-400" data-i18n="sidebar.rtl_bias_tee">Bias Tee (LNA power)</span>
+              </label>
+
+              <p id="rtlSdrStatus" class="text-xs text-slate-500 hidden"></p>
+              <button id="rtlDetectBtn" class="w-full py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 transition text-xs flex items-center justify-center gap-1.5">
+                <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                <span data-i18n="sidebar.rtl_detect">Detect RTL-SDR</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="audioInputSection">
           <div>
             <label class="text-xs text-slate-400" data-i18n="sidebar.device">Uređaj</label>
             <select id="audioDevice" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"></select>
@@ -171,6 +222,7 @@
               <option>44100</option>
               <option>96000</option>
             </select>
+          </div>
           </div>
 
           <!-- Audio Monitor Output -->
@@ -277,11 +329,12 @@
         </div>
 
         <button id="saveStationBtn" class="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-sm" data-i18n="sidebar.save">Spremi</button>
-        <button id="uploadStationBtn" class="w-full py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 transition text-sm flex items-center justify-center gap-2" title="Ručno uploadaj podatke o stanici na SondeHub" data-i18n-title="sidebar.upload_station_hint">
+        </div>
+        <!-- Upload gumb izvan collapsible-body da bude uvijek vidljiv -->
+        <button id="uploadStationBtn" class="w-full mt-3 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 transition text-sm flex items-center justify-center gap-2" title="Ručno uploadaj podatke o stanici na SondeHub" data-i18n-title="sidebar.upload_station_hint">
           <i data-lucide="upload-cloud" class="w-4 h-4"></i>
           <span data-i18n="sidebar.upload_station">Upload stanice na SondeHub</span>
         </button>
-        </div>
       </div>
 
       <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 collapsible-panel" data-panel-id="sidebar-csv">
@@ -455,6 +508,10 @@
               <input type="checkbox" id="showMetarStations" class="accent-brand-500" />
               <span data-i18n="map.metar_stations">METAR stanice</span>
             </label>
+            <label class="flex items-center gap-1 cursor-pointer" data-i18n-title="map.day_night">
+              <input type="checkbox" id="showDayNight" class="accent-brand-500" />
+              <span data-i18n="map.day_night">Dan/noć sjena</span>
+            </label>
           </div>
         </div>
         <div class="collapsible-panel-body" data-panel-id="map">
@@ -480,11 +537,15 @@
             <div>
               <span class="text-slate-500" data-i18n="spectrum.max_freq">Max freq:</span>
               <span id="peakFreqValue" class="font-mono font-semibold ml-1 text-slate-400">---</span>
-              <span class="text-slate-500">Hz</span>
+              <span id="peakFreqUnit" class="text-slate-500">Hz</span>
             </div>
             <div>
               <span class="text-slate-500" data-i18n="spectrum.tones">Detektirani tonovi:</span>
               <span id="toneInfoValue" class="font-mono font-semibold ml-1 text-slate-400">---</span>
+            </div>
+            <div class="stat-item hidden">
+              <span class="text-slate-500">⎯ Center:</span>
+              <span id="centerFreqValue" class="font-mono font-semibold ml-1 text-cyan-400">---</span>
             </div>
             <div id="audioIndicator" class="flex items-center gap-1">
               <span class="w-2 h-2 rounded-full bg-slate-600"></span>
@@ -1206,7 +1267,7 @@
               <i data-lucide="tag" class="w-4 h-4"></i>
               <span data-i18n="about.version">Verzija</span>
             </span>
-            <span class="font-mono text-white">1.5</span>
+            <span class="font-mono text-white">1.6</span>
           </div>
 
           <div class="flex items-center justify-between py-2 border-b border-slate-800/60">
