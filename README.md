@@ -6,7 +6,7 @@ Modern web-based frontend for decoding and tracking high-altitude balloon (HAB) 
 
 Built as a full replacement for the original Horus GUI (Qt-based), Horus Web runs entirely in your browser and provides real-time telemetry decoding, mapping, charting, and flight analysis — all from a single `.exe` or Python script.
 
-**Version:** 1.6  
+**Version:** 1.7  
 **Author:** 9A6NDZ Zoran  
 **License:** GPL-3.0
 
@@ -20,6 +20,7 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 - RTL-SDR Direct mode — receive signal directly from RTL-SDR dongle without external SDR software (configurable frequency, gain, PPM offset, bandwidth, bias tee)
 - Configurable baud rate, tone spacing, and mask estimator
 - Real-time FFT audio spectrum display with peak hold and tone detection
+- Waterfall display in RTL-SDR Direct mode — scrolling time-frequency view with auto-scaling dB range
 - Audio monitor output — listen to the incoming signal through a separate output device
 - Automatic payload ID and custom field list download from SondeHub
 
@@ -54,6 +55,15 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 - PDF flight report generation (altitude graph, SNR graph, flight summary table)
 - SondeHub Amateur network upload with automatic station re-registration
 - Private telemetry server forwarding via UDP or TCP (JSON or CSV format)
+
+### Flight History
+- Dedicated **History** window for browsing and analyzing past flights
+- **Sondes table** — searchable, sortable list of all logged flights with packet count, max altitude, distance, duration and flight phase
+- **Flight analysis** — detailed per-flight charts (altitude profile, climb rate, SNR, battery, temperature) computed from any stored log file
+- **Comparison** — overlay multiple flights on the same charts to compare ascent rates, altitude profiles and signal quality
+- **Flight replay** — animated playback of a flight on its own interactive map with adjustable speed (1×, 2×, 10×, 20×), scrub slider, launch/landing markers and color-coded balloon icon
+- File management: download, delete, or load a log back into the main view directly from the history table
+- Built-in automatic update checker — notifies when a new version is available on GitHub
 
 ### User Interface
 - Dark and light theme
@@ -116,7 +126,8 @@ horus-web/
 │       ├── app.js           # Main application logic
 │       ├── map.js           # Leaflet map with multi-balloon tracking
 │       ├── charts.js        # Chart.js real-time graphs
-│       ├── spectrum.js      # Audio FFT spectrum display
+│       ├── spectrum.js      # Audio FFT spectrum + waterfall display
+│       ├── history.js       # Flight history modal (table, analysis, comparison, replay)
 │       ├── analytics.js     # UI analytics and statistics
 │       └── i18n.js          # Internationalization (HR/EN/PL)
 │
@@ -139,6 +150,7 @@ All configuration is stored as JSON files next to the executable (or `main.py`):
 | `email_config.json` | SMTP settings for email notifications |
 | `startup_programs.json` | Programs to auto-launch on startup |
 | `alert_config.json` | Alert thresholds (battery, temperature, SNR, timeout) |
+| `update_config.json` | Auto update check preferences |
 
 ---
 
@@ -152,11 +164,15 @@ Horus Web exposes a REST API on the same port as the web interface. All endpoint
 
 **Flight data:** `/api/flight`, `/api/flights`, `/api/callsigns`, `/api/flight/stats`, `/api/flight/reset`
 
-**Logging:** `/api/logging/config`, `/api/logging/files`, `/api/logging/download/{filename}`, `/api/logging/load/{filename}`
+**Logging:** `/api/logging/config`, `/api/logging/files`, `/api/logging/download/{filename}`, `/api/logging/load/{filename}`, `/api/logging/file/{filename}` (DELETE)
+
+**History:** `/api/history/parse/{filename}` — parse a log file and return all flights with packets and per-flight summary (used by the History window for analysis, comparison and replay)
 
 **Weather:** `/api/weather/config`, `/api/weather/current`, `/api/weather/tile-url`
 
 **METAR:** `/api/metar/nearby`, `/api/metar/station/{icao}`
+
+**Updates:** `/api/update/check`, `/api/update/config`
 
 **Other:** `/api/alerts/config`, `/api/email/config`, `/api/email/test`, `/api/startup-programs/config`, `/api/monitor/start`, `/api/monitor/stop`, `/api/server/config`, `/api/server/restart`, `/api/browse`
 
@@ -210,9 +226,12 @@ This project is a derivative work that uses [horusdemodlib](https://github.com/p
 | [Matplotlib](https://matplotlib.org/) | PSF/BSD | PDF report chart generation |
 | [ReportLab](https://www.reportlab.com/) | BSD-3-Clause | PDF generation |
 | [PyAudio](https://people.csail.mit.edu/hubert/pyaudio/) | MIT | Audio input/output |
-| [pyrtlsdr](https://github.com/roger-/pyrtlsdr) | GPL-3.0 | RTL-SDR dongle interface for direct SDR reception |
 | [HTTPX](https://www.python-httpx.org/) | BSD-3-Clause | Async HTTP client (weather, METAR) |
 | [PyInstaller](https://pyinstaller.org/) | GPL-2.0 (with bootloader exception) | .exe packaging |
+
+### External Tools (RTL-SDR Direct mode)
+
+RTL-SDR Direct mode does not use a Python binding — it invokes the standard `rtl_fm` command-line tool from [librtlsdr](https://github.com/rtlsdrblog/rtl-sdr-blog) as a subprocess. The bundled Windows `.exe` includes `rtl_fm.exe`; when running from source, install `rtl-sdr` from your package manager (Linux/macOS) or place the official Windows binaries in your PATH.
 
 ### JavaScript (frontend, loaded via CDN)
 

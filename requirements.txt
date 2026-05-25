@@ -28,7 +28,12 @@ pyaudio>=0.2.13                 # Audio input/output (requires PortAudio system 
 # ---------------------
 # RTL-SDR Direct
 # ---------------------
-pyrtlsdr>=0.3.0                 # RTL-SDR dongle interface (direct SDR reception without external software)
+# Note: RTL-SDR Direct mode does NOT require a Python package — it uses the
+# external `rtl_fm` command-line tool from librtlsdr. Install it from:
+#   - Windows: https://github.com/rtlsdrblog/rtl-sdr-blog/releases (place rtl_fm.exe in PATH)
+#   - Linux:   sudo apt install rtl-sdr
+#   - macOS:   brew install librtlsdr
+# Horus Web detects rtl_fm automatically via /api/rtl-sdr/detect.
 
 # ---------------------
 # Horus Modem & Decoder
@@ -80,4 +85,5 @@ reportlab>=4.0.0                # PDF document creation (flight reports)
 # threading                     # Multi-threading (audio, modem, logging)
 # time                          # Time functions
 # typing                        # Type hints (Optional, Callable)
+# urllib.request                # HTTP requests (GitHub version check)
 # webbrowser                    # Auto-open browser on startup

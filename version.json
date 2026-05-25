@@ -1,6 +1,6 @@
 {
-  "version": "1.6",
-  "release_notes": "Some new options have been added",
+  "version": "1.7",
+  "release_notes": "Add RTL waterfall and history flight table",
   "release_url": "https://github.com/9A6NDZ/Horus-WEB/releases/latest",
   "min_version": "1.0"
 }
