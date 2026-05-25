@@ -26,6 +26,16 @@ const HorusI18n = (() => {
       en: 'Settings',
       pl: 'Ustawienia',
     },
+    'header.history': {
+      hr: 'Povijest letova',
+      en: 'Flight history',
+      pl: 'Historia lotów',
+    },
+    'header.about': {
+      hr: 'O aplikaciji',
+      en: 'About',
+      pl: 'O aplikacji',
+    },
     'header.connected': {
       hr: 'Spojeno',
       en: 'Connected',
@@ -993,6 +1003,14 @@ const HorusI18n = (() => {
     pl: 'Słaby sygnał' },
     'spectrum.signal_none': { hr: 'Nema signala', en: 'No signal',
     pl: 'Brak sygnału' },
+    'spectrum.waterfall_title': { hr: 'Waterfall', en: 'Waterfall',
+    pl: 'Wodospad' },
+    'spectrum.waterfall_hint': { hr: '(novije gore)', en: '(newest on top)',
+    pl: '(najnowsze na górze)' },
+    'spectrum.waterfall_weak': { hr: 'slab', en: 'weak',
+    pl: 'słaby' },
+    'spectrum.waterfall_strong': { hr: 'jak', en: 'strong',
+    pl: 'silny' },
 
     // ===================== APP.JS — HARDCODED CONSOLE STRINGS =====================
     'app.chart_time_range': { hr: 'Vremenski raspon grafova: {0}', en: 'Chart time range: {0}',
@@ -1111,6 +1129,86 @@ const HorusI18n = (() => {
     pl: 'UTRATA PAKIETÓW' },
     'alert.timeout_message': { hr: '{0} — nema paketa {1}s (prag: {2}s)', en: '{0} — no packets {1}s (threshold: {2}s)',
     pl: '{0} — brak pakietów {1}s (próg: {2}s)' },
+
+    // ===================== HISTORY =====================
+    'history.title': { hr: 'Povijest letova', en: 'Flight history', pl: 'Historia lotów' },
+    'history.refresh': { hr: 'Osvježi', en: 'Refresh', pl: 'Odśwież' },
+    'history.tab_list': { hr: 'Tablica sondi', en: 'Sondes table', pl: 'Tabela sond' },
+    'history.tab_analyze': { hr: 'Analiza leta', en: 'Flight analysis', pl: 'Analiza lotu' },
+    'history.tab_compare': { hr: 'Usporedba', en: 'Comparison', pl: 'Porównanie' },
+    'history.tab_replay': { hr: 'Repriza leta', en: 'Flight replay', pl: 'Powtórka lotu' },
+
+    'history.search_placeholder': { hr: 'Pretraži po callsignu ili imenu fajla...', en: 'Search by callsign or filename...', pl: 'Szukaj po znaku lub nazwie pliku...' },
+    'history.format_all': { hr: 'Svi formati', en: 'All formats', pl: 'Wszystkie formaty' },
+    'history.files': { hr: 'datoteka', en: 'files', pl: 'plików' },
+    'history.loading': { hr: 'Učitavanje...', en: 'Loading...', pl: 'Ładowanie...' },
+    'history.empty': { hr: 'Nema log datoteka', en: 'No log files', pl: 'Brak plików logów' },
+
+    'history.col_file': { hr: 'Datoteka', en: 'File', pl: 'Plik' },
+    'history.col_callsign': { hr: 'Callsign', en: 'Callsign', pl: 'Znak' },
+    'history.col_packets': { hr: 'Paketi', en: 'Packets', pl: 'Pakiety' },
+    'history.col_max_alt': { hr: 'Max visina', en: 'Max altitude', pl: 'Maks. wysokość' },
+    'history.col_distance': { hr: 'Udaljenost', en: 'Distance', pl: 'Odległość' },
+    'history.col_duration': { hr: 'Trajanje', en: 'Duration', pl: 'Czas trwania' },
+    'history.col_phase': { hr: 'Faza', en: 'Phase', pl: 'Faza' },
+    'history.col_date': { hr: 'Datum', en: 'Date', pl: 'Data' },
+    'history.col_actions': { hr: 'Akcije', en: 'Actions', pl: 'Akcje' },
+
+    'history.btn_analyze': { hr: 'Analiziraj', en: 'Analyze', pl: 'Analizuj' },
+    'history.btn_replay': { hr: 'Repriza', en: 'Replay', pl: 'Powtórka' },
+    'history.btn_download': { hr: 'Preuzmi', en: 'Download', pl: 'Pobierz' },
+    'history.btn_delete': { hr: 'Obriši', en: 'Delete', pl: 'Usuń' },
+    'history.btn_load': { hr: 'Učitaj u glavni prikaz', en: 'Load into main view', pl: 'Załaduj do głównego widoku' },
+
+    'history.confirm_delete': { hr: 'Obrisati datoteku "{0}"? Ova akcija je nepovratna.', en: 'Delete file "{0}"? This action is irreversible.', pl: 'Usunąć plik "{0}"? Ta akcja jest nieodwracalna.' },
+    'history.deleted': { hr: 'Datoteka obrisana.', en: 'File deleted.', pl: 'Plik usunięty.' },
+    'history.delete_failed': { hr: 'Greška pri brisanju datoteke.', en: 'Failed to delete file.', pl: 'Błąd usuwania pliku.' },
+
+    'history.analyze_empty': { hr: 'Nije odabran nijedan let', en: 'No flight selected', pl: 'Nie wybrano lotu' },
+    'history.analyze_empty_hint': { hr: 'Vrati se na karticu "Tablica sondi" i klikni "Analiza" na nekom letu.', en: 'Go back to "Sondes table" tab and click "Analyze" on a flight.', pl: 'Wróć do zakładki "Tabela sond" i kliknij "Analizuj" przy locie.' },
+
+    'history.k_packets': { hr: 'Paketa', en: 'Packets', pl: 'Pakiety' },
+    'history.k_max_alt': { hr: 'Max visina', en: 'Max altitude', pl: 'Maks. wysokość' },
+    'history.k_distance': { hr: 'Udaljenost', en: 'Distance', pl: 'Odległość' },
+    'history.k_duration': { hr: 'Trajanje', en: 'Duration', pl: 'Czas trwania' },
+    'history.k_avg_climb': { hr: 'Avg climb', en: 'Avg climb', pl: 'Śr. wznosz.' },
+    'history.k_avg_speed': { hr: 'Avg brzina', en: 'Avg speed', pl: 'Śr. prędkość' },
+
+    'history.chart_altitude': { hr: 'Visina (m)', en: 'Altitude (m)', pl: 'Wysokość (m)' },
+    'history.chart_temp': { hr: 'Temperatura (°C)', en: 'Temperature (°C)', pl: 'Temperatura (°C)' },
+    'history.chart_battery': { hr: 'Baterija (V)', en: 'Battery (V)', pl: 'Bateria (V)' },
+    'history.chart_climb': { hr: 'Climb rate (m/s)', en: 'Climb rate (m/s)', pl: 'Prędkość wznoszenia (m/s)' },
+    'history.chart_speed': { hr: 'Horiz. brzina (km/h)', en: 'Horiz. speed (km/h)', pl: 'Prędkość pozioma (km/h)' },
+    'history.chart_snr': { hr: 'SNR (dB)', en: 'SNR (dB)', pl: 'SNR (dB)' },
+
+    'history.chart_altitude_cmp': { hr: 'Visina (m) — preklopljeno', en: 'Altitude (m) — overlaid', pl: 'Wysokość (m) — nakładka' },
+    'history.chart_climb_cmp': { hr: 'Climb rate (m/s) — preklopljeno', en: 'Climb rate (m/s) — overlaid', pl: 'Pr. wznoszenia (m/s) — nakładka' },
+    'history.chart_temp_cmp': { hr: 'Temperatura (°C) — preklopljeno', en: 'Temperature (°C) — overlaid', pl: 'Temperatura (°C) — nakładka' },
+    'history.chart_speed_cmp': { hr: 'Horiz. brzina (km/h) — preklopljeno', en: 'Horiz. speed (km/h) — overlaid', pl: 'Pr. pozioma (km/h) — nakładka' },
+
+    'history.compare_title': { hr: 'Usporedba letova', en: 'Flight comparison', pl: 'Porównanie lotów' },
+    'history.selected': { hr: 'odabrano', en: 'selected', pl: 'wybranych' },
+    'history.compare_clear': { hr: 'Očisti', en: 'Clear', pl: 'Wyczyść' },
+    'history.compare_hint': { hr: 'Vrati se na karticu "Tablica sondi" i checkbox-om odaberi 2 ili više letova za usporedbu.', en: 'Go to "Sondes table" tab and use checkboxes to select 2+ flights to compare.', pl: 'Wróć do zakładki "Tabela sond" i zaznacz 2+ lotów do porównania.' },
+    'history.compare_empty': { hr: 'Odaberi 2+ letova iz tablice za usporedbu', en: 'Select 2+ flights from the table to compare', pl: 'Wybierz 2+ lotów z tabeli do porównania' },
+
+    'history.replay_empty': { hr: 'Nije odabran nijedan let', en: 'No flight selected', pl: 'Nie wybrano lotu' },
+    'history.replay_empty_hint': { hr: 'Vrati se na karticu "Tablica sondi" i klikni "Repriza" na nekom letu.', en: 'Go to "Sondes table" tab and click "Replay" on a flight.', pl: 'Wróć do zakładki "Tabela sond" i kliknij "Powtórka" przy locie.' },
+    'history.replay_balloon': { hr: 'Balon', en: 'Balloon', pl: 'Balon' },
+    'history.replay_time': { hr: 'Vrijeme', en: 'Time', pl: 'Czas' },
+    'history.replay_altitude': { hr: 'Visina', en: 'Altitude', pl: 'Wysokość' },
+    'history.replay_climb': { hr: 'Climb', en: 'Climb', pl: 'Wznoszenie' },
+    'history.replay_speed': { hr: 'Brzina', en: 'Speed', pl: 'Prędkość' },
+    'history.replay_progress': { hr: 'Paket', en: 'Packet', pl: 'Pakiet' },
+    'history.replay_speed_label': { hr: 'Brzina:', en: 'Speed:', pl: 'Prędkość:' },
+    'history.replay_play': { hr: 'Pokreni/Pauziraj', en: 'Play/Pause', pl: 'Odtwórz/Pauza' },
+    'history.replay_restart': { hr: 'Vrati na početak', en: 'Restart', pl: 'Restart' },
+
+    'history.phase.pre_launch': { hr: 'Pre-launch', en: 'Pre-launch', pl: 'Przed startem' },
+    'history.phase.ascent': { hr: 'Uspon', en: 'Ascent', pl: 'Wznoszenie' },
+    'history.phase.burst': { hr: 'Burst', en: 'Burst', pl: 'Pęknięcie' },
+    'history.phase.descent': { hr: 'Spuštanje', en: 'Descent', pl: 'Opadanie' },
+    'history.phase.landed': { hr: 'Sletjelo', en: 'Landed', pl: 'Wylądował' },
   };
 
   // ---------------------------------------------------------------------------
