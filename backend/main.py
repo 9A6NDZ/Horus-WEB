@@ -32,7 +32,7 @@ logging.basicConfig(
 log = logging.getLogger("horus-web")
 
 # Trenutna verzija programa — ažuriraj ovdje pri svakom releasu
-CURRENT_VERSION = "1.6"
+CURRENT_VERSION = "1.7"
 
 # GitHub raw URL za provjeru nove verzije
 UPDATE_CHECK_URL = "https://raw.githubusercontent.com/9A6NDZ/Horus-WEB/main/version.json"
@@ -1662,6 +1662,118 @@ async def api_logging_load(filename: str):
     except Exception as e:
         log.exception(f"Failed to load log file {filename}: {e}")
         raise HTTPException(500, f"Greška pri učitavanju: {str(e)}")
+
+
+@app.get("/api/history/parse/{filename}")
+async def api_history_parse(filename: str):
+    """
+    Parsiraj log file i vrati pakete + summary BEZ utjecaja na glavni analyzer state.
+    Koristi se za prikaz povijesti, analizu i replay leta u History prozoru.
+    """
+    log_dir = telem_logger.log_directory if telem_logger else str(Path(__file__).parent / "logs")
+    filepath = Path(log_dir) / filename
+
+    # Path traversal zaštita
+    if not filepath.resolve().parent == Path(log_dir).resolve():
+        raise HTTPException(403, "Nedozvoljen pristup")
+    if not filepath.exists():
+        raise HTTPException(404, "Datoteka ne postoji")
+
+    try:
+        # Koristi PRIVATNU instancu analyzera da ne dirne globalni state
+        from flight_analyzer import FlightAnalyzer as _FA
+        temp_analyzer = _FA()
+
+        if filepath.suffix == '.csv':
+            loaded = temp_analyzer.load_from_csv(str(filepath))
+        elif filepath.suffix == '.json':
+            loaded = temp_analyzer.load_from_json(str(filepath))
+        else:
+            raise HTTPException(400, "Nepodržani format. Samo CSV i JSON.")
+
+        # Sastavi rezultat — sve sonde s paketima i osnovnim statistikama
+        flights_out = {}
+        for cs in loaded.keys():
+            fd = temp_analyzer.get_flight_data(cs)
+            if not fd:
+                continue
+            pkts = fd.get("packets", [])
+            # Izračunaj sažetak
+            valid_pkts = [p for p in pkts if not p.get("no_gps_fix")]
+            altitudes = [p.get("altitude", 0) for p in valid_pkts if p.get("altitude") is not None]
+            rx_times = [p.get("_rx_time") for p in pkts if p.get("_rx_time")]
+
+            duration_s = 0
+            if len(rx_times) >= 2:
+                duration_s = max(rx_times) - min(rx_times)
+
+            # Bounding box putanje
+            lats = [p["latitude"] for p in valid_pkts if p.get("latitude") is not None]
+            lons = [p["longitude"] for p in valid_pkts if p.get("longitude") is not None]
+            bbox = None
+            if lats and lons:
+                bbox = {
+                    "min_lat": min(lats), "max_lat": max(lats),
+                    "min_lon": min(lons), "max_lon": max(lons),
+                }
+
+            flights_out[cs] = {
+                "callsign": cs,
+                "packets": pkts,
+                "packet_count": len(pkts),
+                "valid_packet_count": len(valid_pkts),
+                "max_altitude": fd.get("max_altitude", 0),
+                "max_altitude_time": fd.get("max_altitude_time"),
+                "burst_detected": fd.get("burst_detected", False),
+                "burst_time": fd.get("burst_time"),
+                "phase": fd.get("phase"),
+                "launch_time": fd.get("launch_time"),
+                "total_distance_m": fd.get("total_distance_m", 0),
+                "duration_s": round(duration_s, 1),
+                "bbox": bbox,
+                "first_time": rx_times[0] if rx_times else None,
+                "last_time": rx_times[-1] if rx_times else None,
+                "min_altitude": min(altitudes) if altitudes else 0,
+            }
+
+        # Vremenski raspon cijelog filea
+        stat = filepath.stat()
+
+        return {
+            "ok": True,
+            "filename": filename,
+            "file_size": stat.st_size,
+            "file_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "callsigns": list(loaded.keys()),
+            "total_packets": sum(loaded.values()),
+            "flights": flights_out,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception(f"Failed to parse log file {filename}: {e}")
+        raise HTTPException(500, f"Greška pri parsiranju: {str(e)}")
+
+
+@app.delete("/api/logging/file/{filename}")
+async def api_logging_delete(filename: str):
+    """Obriši log file iz log direktorija."""
+    log_dir = telem_logger.log_directory if telem_logger else str(Path(__file__).parent / "logs")
+    filepath = Path(log_dir) / filename
+
+    if not filepath.resolve().parent == Path(log_dir).resolve():
+        raise HTTPException(403, "Nedozvoljen pristup")
+    if not filepath.exists():
+        raise HTTPException(404, "Datoteka ne postoji")
+
+    try:
+        filepath.unlink()
+        log.info(f"Deleted log file: {filename}")
+        return {"ok": True, "filename": filename}
+    except Exception as e:
+        log.exception(f"Failed to delete log file {filename}: {e}")
+        raise HTTPException(500, f"Greška pri brisanju: {str(e)}")
 
 
 @app.websocket("/ws")
