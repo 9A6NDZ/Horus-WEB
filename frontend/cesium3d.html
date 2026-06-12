@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Horus-WEB · 3D prikaz leta</title>
+
+  <!-- CesiumJS (besplatan, open-source) -->
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Widgets/widgets.css" />
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Cesium.js"></script>
+
+  <style>
+    html, body {
+      margin: 0; padding: 0; height: 100%; width: 100%;
+      background: #0f172a; overflow: hidden;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #e2e8f0;
+    }
+    #cesiumContainer { position: absolute; inset: 0; }
+
+    /* Gornja traka */
+    #topbar {
+      position: absolute; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 14px;
+      background: linear-gradient(180deg, rgba(15,23,42,0.92), rgba(15,23,42,0.0));
+      z-index: 1000; pointer-events: none;
+    }
+    #topbar .title {
+      font-weight: 700; font-size: 14px; letter-spacing: 0.3px;
+      display: flex; align-items: center; gap: 8px; pointer-events: auto;
+    }
+    #topbar .title .dot { width: 9px; height: 9px; border-radius: 50%; background: #3b82f6; box-shadow: 0 0 8px #3b82f6; }
+    #topbar .spacer { flex: 1; }
+    #topbar select, #topbar button {
+      pointer-events: auto;
+      background: rgba(30,41,59,0.9); color: #e2e8f0;
+      border: 1px solid #334155; border-radius: 8px;
+      padding: 6px 10px; font-size: 12px; cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    #topbar select:hover, #topbar button:hover { border-color: #3b82f6; background: rgba(51,65,85,0.95); }
+    #topbar label { pointer-events: auto; font-size: 12px; display: flex; align-items: center; gap: 6px; color: #cbd5e1; }
+
+    /* Info panel donji lijevi */
+    #infoPanel {
+      position: absolute; bottom: 36px; left: 14px;
+      background: rgba(15,23,42,0.88); backdrop-filter: blur(8px);
+      border: 1px solid #1e293b; border-radius: 12px;
+      padding: 12px 14px; min-width: 220px; z-index: 1000;
+      font-size: 12px; line-height: 1.55;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    #infoPanel .cs { font-weight: 700; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+    #infoPanel .row { display: flex; justify-content: space-between; gap: 16px; }
+    #infoPanel .row .k { color: #94a3b8; }
+    #infoPanel .row .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+    #infoPanel .phase {
+      display: inline-block; padding: 1px 8px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+
+    /* Status / loading */
+    #status {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      background: rgba(15,23,42,0.95); border: 1px solid #1e293b;
+      padding: 18px 24px; border-radius: 12px; z-index: 2000;
+      font-size: 14px; text-align: center; max-width: 420px;
+    }
+    #status .sub { color: #94a3b8; font-size: 12px; margin-top: 6px; }
+    .hidden { display: none !important; }
+
+    /* Legenda boja po fazi */
+    #legend {
+      position: absolute; bottom: 36px; right: 14px;
+      background: rgba(15,23,42,0.88); backdrop-filter: blur(8px);
+      border: 1px solid #1e293b; border-radius: 12px;
+      padding: 10px 12px; z-index: 1000; font-size: 11px;
+    }
+    #legend .lrow { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+    #legend .sw { width: 14px; height: 4px; border-radius: 2px; }
+
+    /* Cesium kontrole malo dolje da ne smetaju topbaru */
+    .cesium-viewer-toolbar { top: 48px !important; }
+    .cesium-viewer-animationContainer { transform: scale(0.82); transform-origin: left bottom; }
+    .cesium-viewer-timelineContainer { left: 150px !important; }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+
+  <div id="topbar">
+    <div class="title"><span class="dot"></span><span id="appTitle">Horus-WEB · 3D prikaz leta</span></div>
+    <div class="spacer"></div>
+    <label><span data-t="baseLayer">Podloga:</span>
+      <select id="baseLayerSelect">
+        <option value="satellite" data-t="layer_sat">🛰️ Satelit</option>
+        <option value="hybrid" data-t="layer_hybrid">🛰️ Satelit + nazivi</option>
+        <option value="street" data-t="layer_street">🗺️ Ulice</option>
+        <option value="dark" data-t="layer_dark">🌑 Tamna</option>
+      </select>
+    </label>
+    <label><span data-t="probe">Sonda:</span>
+      <select id="flightSelect"><option value="__all__" data-t="all_probes">Sve sonde</option></select>
+    </label>
+    <button id="btnPlay">▶ <span data-t="play">Reprodukcija</span></button>
+    <button id="btnFollow">🎥 <span data-t="follow">Prati balon</span></button>
+    <button id="btnOrbit">🔄 <span data-t="orbit">Vrti kameru</span></button>
+    <label id="orbitSpeedWrap" data-t-title="orbit_speed_tip" title="Brzina vrtnje kamere">
+      <span data-t="orbit_speed">Brzina:</span>
+      <input type="range" id="orbitSpeed" min="2" max="120" value="24" step="1" style="width:90px; accent-color:#3b82f6;" />
+      <span id="orbitSpeedVal" style="font-variant-numeric:tabular-nums; min-width:42px; display:inline-block;">24°/s</span>
+    </label>
+    <button id="btnTop">⬇ <span data-t="topdown">Pogled odozgo</span></button>
+    <button id="btnRefresh">⟳ <span data-t="refresh">Osvježi</span></button>
+  </div>
+
+  <div id="infoPanel" class="hidden">
+    <div class="cs"><span id="ipCs">—</span><span id="ipPhase" class="phase"></span></div>
+    <div class="row"><span class="k" data-t="alt">Visina</span><span class="v" id="ipAlt">—</span></div>
+    <div class="row"><span class="k" data-t="lat">Geo. širina</span><span class="v" id="ipLat">—</span></div>
+    <div class="row"><span class="k" data-t="lon">Geo. dužina</span><span class="v" id="ipLon">—</span></div>
+    <div class="row"><span class="k" data-t="climb">Vert. brzina</span><span class="v" id="ipClimb">—</span></div>
+    <div class="row"><span class="k" data-t="time">Vrijeme</span><span class="v" id="ipTime">—</span></div>
+  </div>
+
+  <div id="legend">
+    <div class="lrow"><span class="sw" style="background:#3b82f6"></span><span data-t="ph_ascent">Uspon</span></div>
+    <div class="lrow"><span class="sw" style="background:#ef4444"></span><span data-t="ph_burst">Burst</span></div>
+    <div class="lrow"><span class="sw" style="background:#f59e0b"></span><span data-t="ph_descent">Pad</span></div>
+    <div class="lrow"><span class="sw" style="background:#10b981"></span><span data-t="ph_landed">Sletio</span></div>
+  </div>
+
+  <div id="status">
+    <div id="statusMsg">Učitavanje 3D globusa…</div>
+    <div class="sub" id="statusSub">CesiumJS · besplatni teren</div>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    // ----------------------------------------------------------------------
+    // i18n — jezik se čita iz istog localStorage ključa kao 2D sučelje
+    //   ('horus_language': 'hr' | 'en' | 'pl'). 3D prozor je isti origin.
+    // ----------------------------------------------------------------------
+    let LANG = 'hr';
+    try { LANG = localStorage.getItem('horus_language') || 'hr'; } catch (_) {}
+    if (LANG !== 'hr' && LANG !== 'en' && LANG !== 'pl') LANG = 'hr';
+
+    const T = {
+      title:       { hr: 'Horus-WEB · 3D prikaz leta', en: 'Horus-WEB · 3D flight view', pl: 'Horus-WEB · widok lotu 3D' },
+      baseLayer:   { hr: 'Podloga:', en: 'Base map:', pl: 'Podkład:' },
+      layer_sat:   { hr: '🛰️ Satelit', en: '🛰️ Satellite', pl: '🛰️ Satelita' },
+      layer_hybrid:{ hr: '🛰️ Satelit + nazivi', en: '🛰️ Satellite + labels', pl: '🛰️ Satelita + nazwy' },
+      layer_street:{ hr: '🗺️ Ulice', en: '🗺️ Streets', pl: '🗺️ Ulice' },
+      layer_dark:  { hr: '🌑 Tamna', en: '🌑 Dark', pl: '🌑 Ciemna' },
+      probe:       { hr: 'Sonda:', en: 'Probe:', pl: 'Sonda:' },
+      all_probes:  { hr: 'Sve sonde', en: 'All probes', pl: 'Wszystkie sondy' },
+      play:        { hr: 'Reprodukcija', en: 'Play', pl: 'Odtwórz' },
+      pause:       { hr: 'Pauza', en: 'Pause', pl: 'Pauza' },
+      follow:      { hr: 'Prati balon', en: 'Follow balloon', pl: 'Śledź balon' },
+      unfollow:    { hr: 'Prestani pratiti', en: 'Stop following', pl: 'Przestań śledzić' },
+      orbit:       { hr: 'Vrti kameru', en: 'Orbit camera', pl: 'Obróć kamerę' },
+      orbit_stop:  { hr: 'Zaustavi vrtnju', en: 'Stop orbit', pl: 'Zatrzymaj obrót' },
+      orbit_speed: { hr: 'Brzina:', en: 'Speed:', pl: 'Prędkość:' },
+      orbit_speed_tip: { hr: 'Brzina vrtnje kamere', en: 'Camera orbit speed', pl: 'Prędkość obrotu kamery' },
+      topdown:     { hr: 'Pogled odozgo', en: 'Top-down view', pl: 'Widok z góry' },
+      refresh:     { hr: 'Osvježi', en: 'Refresh', pl: 'Odśwież' },
+      alt:         { hr: 'Visina', en: 'Altitude', pl: 'Wysokość' },
+      lat:         { hr: 'Geo. širina', en: 'Latitude', pl: 'Szerokość geo.' },
+      lon:         { hr: 'Geo. dužina', en: 'Longitude', pl: 'Długość geo.' },
+      climb:       { hr: 'Vert. brzina', en: 'Vert. speed', pl: 'Pręd. pionowa' },
+      time:        { hr: 'Vrijeme', en: 'Time', pl: 'Czas' },
+      ph_ascent:   { hr: 'Uspon', en: 'Ascent', pl: 'Wznoszenie' },
+      ph_burst:    { hr: 'Burst', en: 'Burst', pl: 'Pęknięcie' },
+      ph_descent:  { hr: 'Pad', en: 'Descent', pl: 'Opadanie' },
+      ph_landed:   { hr: 'Sletio', en: 'Landed', pl: 'Wylądował' },
+      st_globe:    { hr: 'Učitavanje 3D globusa…', en: 'Loading 3D globe…', pl: 'Ładowanie globusa 3D…' },
+      st_terrain:  { hr: 'CesiumJS · besplatni teren', en: 'CesiumJS · free terrain', pl: 'CesiumJS · darmowy teren' },
+      st_fetch:    { hr: 'Dohvaćanje telemetrije…', en: 'Fetching telemetry…', pl: 'Pobieranie telemetrii…' },
+      st_nofetch:  { hr: 'Ne mogu dohvatiti telemetriju', en: 'Cannot fetch telemetry', pl: 'Nie można pobrać telemetrii' },
+      st_backend:  { hr: 'Provjeri je li backend pokrenut.', en: 'Check that the backend is running.', pl: 'Sprawdź, czy backend działa.' },
+      st_nodata:   { hr: 'Nema podataka o letu', en: 'No flight data', pl: 'Brak danych lotu' },
+      st_nopkt:    { hr: 'Još nijedan paket s GPS fixom nije primljen.', en: 'No packet with a GPS fix received yet.', pl: 'Nie odebrano jeszcze pakietu z fixem GPS.' },
+      st_novalid:  { hr: 'Nema valjanih GPS pozicija', en: 'No valid GPS positions', pl: 'Brak prawidłowych pozycji GPS' },
+      st_allnogps: { hr: 'Svi paketi su bez GPS fixa.', en: 'All packets are without a GPS fix.', pl: 'Wszystkie pakiety bez fixa GPS.' },
+      st_initerr:  { hr: 'Greška pri inicijalizaciji 3D globusa', en: '3D globe initialization error', pl: 'Błąd inicjalizacji globusa 3D' },
+    };
+    function L(key) {
+      const e = T[key];
+      if (!e) return key;
+      return e[LANG] || e.hr || key;
+    }
+    function applyI18n() {
+      document.documentElement.lang = LANG;
+      document.title = L('title');
+      const at = document.getElementById('appTitle');
+      if (at) at.textContent = L('title');
+      document.querySelectorAll('[data-t]').forEach(el => {
+        el.textContent = L(el.getAttribute('data-t'));
+      });
+      document.querySelectorAll('[data-t-title]').forEach(el => {
+        el.title = L(el.getAttribute('data-t-title'));
+      });
+      // Status (početne poruke prije nego loadFlights preuzme)
+      const sm = document.getElementById('statusMsg');
+      const ss = document.getElementById('statusSub');
+      if (sm && sm.dataset.init !== 'done') sm.textContent = L('st_globe');
+      if (ss && ss.dataset.init !== 'done') ss.textContent = L('st_terrain');
+    }
+
+    // ----------------------------------------------------------------------
+    // Boje po fazi (usklađeno s 2D mapom)
+    // ----------------------------------------------------------------------
+    const PHASE_COLORS = {
+      pre_launch: '#64748b',
+      ascent:     '#3b82f6',
+      burst:      '#ef4444',
+      descent:    '#f59e0b',
+      landed:     '#10b981',
+    };
+    // Faza u info-panelu (prati jezik); pre_launch nema kraći prijevod pa fallback
+    function phaseLabel(phase) {
+      const map = {
+        ascent: 'ph_ascent', burst: 'ph_burst',
+        descent: 'ph_descent', landed: 'ph_landed',
+      };
+      if (map[phase]) return L(map[phase]).toUpperCase();
+      const pre = { hr: 'PRIJE LETA', en: 'PRE-LAUNCH', pl: 'PRZED STARTEM' };
+      if (phase === 'pre_launch') return pre[LANG] || pre.hr;
+      return (phase || '').toUpperCase();
+    }
+
+    applyI18n();
+
+    function cssToCesium(hex, alpha) {
+      const c = Cesium.Color.fromCssColorString(hex);
+      return alpha != null ? c.withAlpha(alpha) : c;
+    }
+
+    // ----------------------------------------------------------------------
+    // SVG slika balona kao data-URI (bez vanjskih fajlova, radi offline).
+    //   - Boja prema fazi
+    //   - "burst" / "descent" → puknuti balon s padobranom (drugačiji oblik)
+    //   - cache po (boja+oblik) da se ista slika ne generira više puta
+    // ----------------------------------------------------------------------
+    const _balloonImgCache = {};
+    function balloonImage(color, phase) {
+      const burst = (phase === 'burst' || phase === 'descent' || phase === 'landed');
+      const key = color + '|' + (burst ? 'b' : 'a');
+      if (_balloonImgCache[key]) return _balloonImgCache[key];
+
+      let svg;
+      if (burst) {
+        // Puknuti balon + padobran (pad)
+        svg = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="64" height="80" viewBox="0 0 64 80">
+            <!-- padobran -->
+            <path d="M 12 26 Q 32 2 52 26 Z" fill="${color}" stroke="#0f172a" stroke-width="1.5"/>
+            <path d="M 12 26 Q 22 18 32 26 Q 42 18 52 26" fill="none" stroke="#0f172a" stroke-width="1" opacity="0.5"/>
+            <!-- uzad -->
+            <line x1="13" y1="26" x2="30" y2="50" stroke="#94a3b8" stroke-width="1"/>
+            <line x1="32" y1="26" x2="32" y2="50" stroke="#94a3b8" stroke-width="1"/>
+            <line x1="51" y1="26" x2="34" y2="50" stroke="#94a3b8" stroke-width="1"/>
+            <!-- payload -->
+            <rect x="26" y="50" width="12" height="10" rx="2" fill="#1e293b" stroke="#f1f5f9" stroke-width="1.5"/>
+            <line x1="32" y1="50" x2="32" y2="46" stroke="#f1f5f9" stroke-width="1"/>
+            <circle cx="32" cy="46" r="1.3" fill="#f1f5f9"/>
+          </svg>`;
+      } else {
+        // Cijeli balon (uspon)
+        svg = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="64" height="80" viewBox="0 0 64 80">
+            <ellipse cx="32" cy="28" rx="20" ry="24" fill="${color}" stroke="#0f172a" stroke-width="1.5"/>
+            <ellipse cx="25" cy="20" rx="5" ry="8" fill="rgba(255,255,255,0.45)"/>
+            <!-- vrat -->
+            <path d="M 27 50 L 37 50 L 35 56 L 29 56 Z" fill="${color}" stroke="#0f172a" stroke-width="1"/>
+            <!-- konop -->
+            <line x1="32" y1="56" x2="32" y2="64" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="2,2"/>
+            <!-- payload -->
+            <rect x="27" y="64" width="10" height="8" rx="1.5" fill="#1e293b" stroke="#f1f5f9" stroke-width="1.5"/>
+            <line x1="32" y1="64" x2="32" y2="61" stroke="#f1f5f9" stroke-width="1"/>
+            <circle cx="32" cy="61" r="1.2" fill="#f1f5f9"/>
+          </svg>`;
+      }
+      const uri = 'data:image/svg+xml;base64,' + btoa(svg.trim());
+      _balloonImgCache[key] = uri;
+      return uri;
+    }
+
+    // ----------------------------------------------------------------------
+    // Cesium viewer — koristimo besplatni Ellipsoid teren + OSM imagery,
+    // bez potrebe za Cesium Ion API ključem (nula troška, nema limita).
+    // ----------------------------------------------------------------------
+    Cesium.Ion.defaultAccessToken = undefined; // ne koristimo Ion
+
+    // ----------------------------------------------------------------------
+    // Definicije podloga (sve besplatne, bez API ključa)
+    //   - Satellite: Esri World Imagery (isti izvor kao 2D karta)
+    //   - Hybrid:    satelit + nazivi mjesta / ceste preko njega
+    //   - Street:    OpenStreetMap
+    //   - Dark:      CartoDB tamna karta
+    // ----------------------------------------------------------------------
+    function makeProvider(key) {
+      switch (key) {
+        case 'satellite':
+        case 'hybrid':
+          return new Cesium.UrlTemplateImageryProvider({
+            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            maximumLevel: 19,
+            credit: '© Esri World Imagery',
+          });
+        case 'street':
+          return new Cesium.OpenStreetMapImageryProvider({ url: 'https://a.tile.openstreetmap.org/' });
+        case 'dark':
+          return new Cesium.UrlTemplateImageryProvider({
+            url: 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+            maximumLevel: 20, credit: '© CartoDB',
+          });
+        default:
+          return new Cesium.OpenStreetMapImageryProvider({ url: 'https://a.tile.openstreetmap.org/' });
+      }
+    }
+    // Overlay s nazivima mjesta/cestama za Hybrid (poluprozirne labele preko satelita)
+    function makeLabelsOverlay() {
+      return new Cesium.UrlTemplateImageryProvider({
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+        maximumLevel: 19, credit: '© Esri Reference',
+      });
+    }
+
+    let viewer;
+    try {
+      viewer = new Cesium.Viewer('cesiumContainer', {
+        // Satelitska podloga (Esri World Imagery — besplatno, bez ključa)
+        baseLayer: new Cesium.ImageryLayer(makeProvider('satellite'), {}),
+        terrain: undefined,                 // ravni ellipsoid (bez Ion terena)
+        baseLayerPicker: false,
+        geocoder: false,
+        homeButton: false,
+        sceneModePicker: true,
+        navigationHelpButton: false,
+        timeline: true,
+        animation: true,
+        fullscreenButton: true,
+        infoBox: false,
+        selectionIndicator: false,
+        shouldAnimate: false,
+      });
+    } catch (e) {
+      document.getElementById('statusMsg').textContent = L('st_initerr');
+      document.getElementById('statusSub').textContent = String(e);
+      return;
+    }
+
+    viewer.scene.globe.enableLighting = false;  // ravnomjerno osvjetljenje da satelit ne padne u sjenu
+    viewer.scene.skyAtmosphere.show = true;
+    viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0f172a');
+    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1e293b');
+
+    // ----------------------------------------------------------------------
+    // Prebacivanje podloge (satelit / hybrid / ulice / tamna)
+    // ----------------------------------------------------------------------
+    let labelsLayer = null;
+    function setBaseLayer(key) {
+      const layers = viewer.imageryLayers;
+      layers.removeAll();
+      labelsLayer = null;
+      layers.addImageryProvider(makeProvider(key));
+      // Hybrid = satelit + sloj s nazivima mjesta i granicama preko njega
+      if (key === 'hybrid') {
+        labelsLayer = layers.addImageryProvider(makeLabelsOverlay());
+      }
+    }
+    const baseSel = document.getElementById('baseLayerSelect');
+    baseSel.addEventListener('change', () => setBaseLayer(baseSel.value));
+
+    // ----------------------------------------------------------------------
+    // Stanje
+    // ----------------------------------------------------------------------
+    const flightEntities = {};   // callsign -> { pathEntity, balloonEntity, positionProp, packets, color }
+    let allData = null;
+    let followCallsign = null;
+    let followMode = false;
+    let savedFollowEntity = null;   // zadnji praćeni balon (za očuvanje zooma pri refreshu)
+    let followRange = 6000;         // zadnja poznata udaljenost kamere pri praćenju (m)
+
+    const statusEl   = document.getElementById('status');
+    const statusMsg  = document.getElementById('statusMsg');
+    const statusSub  = document.getElementById('statusSub');
+    const flightSel  = document.getElementById('flightSelect');
+    const infoPanel  = document.getElementById('infoPanel');
+
+    function showStatus(msg, sub) {
+      statusMsg.textContent = msg;
+      statusSub.textContent = sub || '';
+      statusEl.classList.remove('hidden');
+    }
+    function hideStatus() { statusEl.classList.add('hidden'); }
+
+    // ----------------------------------------------------------------------
+    // Pretvori HH:MM:SS + _rx_time u JulianDate
+    //   - Preferiramo _rx_time (unix sekunde) jer je pouzdan i monoton.
+    //   - Fallback: ako nema _rx_time, gradimo umjetnu vremensku os po indeksu.
+    // ----------------------------------------------------------------------
+    function packetToJulian(p, idx, baseEpoch) {
+      if (typeof p._rx_time === 'number' && p._rx_time > 0) {
+        return Cesium.JulianDate.fromDate(new Date(p._rx_time * 1000));
+      }
+      // Fallback: 1 paket = 1 sekunda od početka
+      return Cesium.JulianDate.addSeconds(baseEpoch, idx, new Cesium.JulianDate());
+    }
+
+    // ----------------------------------------------------------------------
+    // Izgradi jednu sondu (putanja + animirani balon)
+    // ----------------------------------------------------------------------
+    function buildFlight(callsign, packets) {
+      // Filtriraj nevažeće GPS pakete (Null Island i no_gps_fix)
+      const valid = packets.filter(p =>
+        !p.no_gps_fix &&
+        p.latitude != null && p.longitude != null && p.altitude != null &&
+        !(Math.abs(p.latitude) < 0.001 && Math.abs(p.longitude) < 0.001)
+      );
+      if (valid.length === 0) return null;
+
+      const lastPhase = valid[valid.length - 1].phase || 'ascent';
+      const color = PHASE_COLORS[lastPhase] || '#3b82f6';
+
+      const baseEpoch = Cesium.JulianDate.now();
+      const positionProp = new Cesium.SampledPositionProperty();
+      const times = [];
+      let start = null, stop = null;
+
+      valid.forEach((p, i) => {
+        const t = packetToJulian(p, i, baseEpoch);
+        const pos = Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude);
+        positionProp.addSample(t, pos);
+        times.push(t);
+        if (!start) start = t;
+        stop = t;
+      });
+
+      // Interpolacija — gladak luk između uzoraka
+      positionProp.setInterpolationOptions({
+        interpolationDegree: 2,
+        interpolationAlgorithm: Cesium.LagrangePolynomialApproximation,
+      });
+
+      // Putanja kao polilinija po visini (ekstrudirana 3D linija)
+      const positions = valid.map(p =>
+        Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude)
+      );
+
+      const pathEntity = viewer.entities.add({
+        name: callsign + ' putanja',
+        polyline: {
+          positions: positions,
+          width: 3,
+          material: new Cesium.PolylineGlowMaterialProperty({
+            glowPower: 0.18,
+            color: cssToCesium(color, 0.95),
+          }),
+          clampToGround: false,
+        },
+      });
+
+      // "Stup" do tla (lakša percepcija visine) — tanka linija od balona do površine
+      const lastPkt = valid[valid.length - 1];
+      const groundDrop = viewer.entities.add({
+        name: callsign + ' visina',
+        polyline: {
+          positions: [
+            Cesium.Cartesian3.fromDegrees(lastPkt.longitude, lastPkt.latitude, lastPkt.altitude),
+            Cesium.Cartesian3.fromDegrees(lastPkt.longitude, lastPkt.latitude, 0),
+          ],
+          width: 1.5,
+          material: cssToCesium(color, 0.35),
+        },
+      });
+
+      // Animirani balon (točka + label) koja klizi po putanji
+      const balloonEntity = viewer.entities.add({
+        id: 'balloon_' + callsign,
+        name: callsign,
+        availability: new Cesium.TimeIntervalCollection([
+          new Cesium.TimeInterval({ start: start, stop: stop }),
+        ]),
+        position: positionProp,
+        billboard: {
+          image: balloonImage(color, lastPhase),
+          width: 40,
+          height: 50,
+          // anchor na dnu slike (payload) = stvarna GPS koordinata
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          // skaliranje s udaljenošću: blizu veći, daleko manji (ali nikad nestane)
+          scaleByDistance: new Cesium.NearFarScalar(1.0e4, 1.3, 3.0e6, 0.45),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: {
+          text: callsign,
+          font: '600 13px ui-monospace, monospace',
+          fillColor: Cesium.Color.WHITE,
+          showBackground: true,
+          backgroundColor: cssToCesium('#0f172a', 0.85),
+          backgroundPadding: new Cesium.Cartesian2(7, 4),
+          pixelOffset: new Cesium.Cartesian2(0, -56),  // iznad balona
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        path: {
+          resolution: 1,
+          leadTime: 0,
+          trailTime: 1e9,           // crta cijeli prijeđeni trag tijekom animacije
+          width: 2,
+          material: new Cesium.PolylineGlowMaterialProperty({
+            glowPower: 0.25, color: cssToCesium(color, 0.9),
+          }),
+        },
+      });
+
+      return {
+        pathEntity, balloonEntity, groundDrop,
+        positionProp, packets: valid, color, start, stop, lastPhase,
+      };
+    }
+
+    // ----------------------------------------------------------------------
+    // Učitaj /api/flights i izgradi sve sonde
+    //   isRefresh = true  → tiho osvježavanje (ne diraj kameru/orbitu/sat
+    //                        ako korisnik prati, orbitira ili reproducira)
+    // ----------------------------------------------------------------------
+    let firstLoadDone = false;
+
+    async function loadFlights(isRefresh) {
+      if (!firstLoadDone) showStatus(L('st_fetch'), '/api/flights');
+      let data;
+      try {
+        const r = await fetch('/api/flights', { cache: 'no-store' });
+        data = await r.json();
+      } catch (e) {
+        if (!firstLoadDone) showStatus(L('st_nofetch'), L('st_backend') + ' ' + e);
+        return;
+      }
+
+      if (!data || !data.flights || Object.keys(data.flights).length === 0) {
+        if (!firstLoadDone) showStatus(L('st_nodata'), L('st_nopkt'));
+        return;
+      }
+
+      // Zapamti stanje kamere/orbite prije rušenja entiteta
+      const wasOrbiting = orbitMode;
+      const orbitCs = wasOrbiting ? (flightSel.value) : null;
+      const prevSelection = flightSel.value;
+      const followId = (viewer.trackedEntity && viewer.trackedEntity.id)
+        ? viewer.trackedEntity.id : null;
+
+      // Očisti staro
+      Object.values(flightEntities).forEach(fe => {
+        viewer.entities.remove(fe.pathEntity);
+        viewer.entities.remove(fe.balloonEntity);
+        if (fe.groundDrop) viewer.entities.remove(fe.groundDrop);
+      });
+      Object.keys(flightEntities).forEach(k => delete flightEntities[k]);
+
+      allData = data;
+
+      let globalStart = null, globalStop = null;
+      let built = 0;
+
+      Object.entries(data.flights).forEach(([cs, info]) => {
+        const fe = buildFlight(cs, info.packets || []);
+        if (!fe) return;
+        flightEntities[cs] = fe;
+        built++;
+        if (!globalStart || Cesium.JulianDate.lessThan(fe.start, globalStart)) globalStart = fe.start;
+        if (!globalStop  || Cesium.JulianDate.greaterThan(fe.stop, globalStop)) globalStop = fe.stop;
+      });
+
+      if (built === 0) {
+        if (!firstLoadDone) showStatus(L('st_novalid'), L('st_allnogps'));
+        return;
+      }
+
+      // Sat/timeline: proširi raspon, ali NE resetiraj trenutno vrijeme pri refreshu
+      if (globalStart && globalStop) {
+        const keepCurrent = isRefresh ? viewer.clock.currentTime.clone() : null;
+        viewer.clock.startTime = globalStart.clone();
+        viewer.clock.stopTime  = globalStop.clone();
+        viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+        const span = Cesium.JulianDate.secondsDifference(globalStop, globalStart);
+        viewer.clock.multiplier = Math.max(1, Math.round(span / 30));
+        viewer.timeline.zoomTo(globalStart, globalStop);
+        if (keepCurrent && Cesium.JulianDate.greaterThan(keepCurrent, globalStart) &&
+            Cesium.JulianDate.lessThan(keepCurrent, globalStop)) {
+          viewer.clock.currentTime = keepCurrent;   // refresh: zadrži poziciju
+        } else if (!isRefresh) {
+          viewer.clock.currentTime = globalStart.clone(); // prvi put: kreni od početka
+        }
+      }
+
+      // Popuni dropdown i vrati prethodni odabir
+      flightSel.innerHTML = '<option value="__all__">' + L('all_probes') + '</option>';
+      Object.keys(flightEntities).forEach(cs => {
+        const o = document.createElement('option');
+        o.value = cs; o.textContent = cs;
+        flightSel.appendChild(o);
+      });
+      if (prevSelection && [...flightSel.options].some(o => o.value === prevSelection)) {
+        flightSel.value = prevSelection;
+      }
+
+      // Info-panel listener — registriraj SAMO jednom (inače se gomila)
+      if (!firstLoadDone) {
+        viewer.clock.onTick.addEventListener(updateInfoPanel);
+      }
+
+      hideStatus();
+
+      // Kamera: diraj je samo pri prvom učitavanju.
+      if (!firstLoadDone) {
+        flyToAll();
+      } else if (isRefresh) {
+        if (wasOrbiting && orbitCs && flightEntities[orbitCs]) {
+          // entitet ponovno izgrađen; orbita ga nađe preko orbitTarget(),
+          // petlja postUpdate nastavlja glatko — kameru NE diramo
+        } else if (wasOrbiting) {
+          stopOrbit();   // meta više ne postoji → uredno zaustavi
+        } else if (followId && String(followId).startsWith('balloon_')) {
+          const cs2 = String(followId).replace('balloon_', '');
+          const newEnt = flightEntities[cs2] ? flightEntities[cs2].balloonEntity : null;
+          if (newEnt) {
+            // Sačuvaj trenutni pogled (smjer + udaljenost) PRIJE re-trackinga.
+            // Inače postavljanje trackedEntity resetira zoom i prezumira na nisku visinu.
+            const camHeading = viewer.camera.heading;
+            const camPitch = viewer.camera.pitch;
+            const oldPos = (savedFollowEntity &&
+              savedFollowEntity.position.getValue(viewer.clock.currentTime)) || null;
+            let keepRange = followRange; // zadnja poznata udaljenost praćenja
+            if (oldPos) {
+              keepRange = Cesium.Cartesian3.distance(viewer.camera.positionWC, oldPos);
+            }
+            keepRange = Math.min(Math.max(keepRange || 6000, 800), 200000);
+
+            const newPos = newEnt.position.getValue(viewer.clock.currentTime);
+            // Otpusti staro praćenje i postavi pogled na novu poziciju s istom udaljenošću
+            viewer.trackedEntity = undefined;
+            if (Cesium.defined(newPos)) {
+              viewer.camera.lookAt(
+                newPos,
+                new Cesium.HeadingPitchRange(camHeading, camPitch, keepRange)
+              );
+              viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+            }
+            // Ponovno uključi tracking — Cesium kreće od upravo postavljenog pogleda
+            viewer.trackedEntity = newEnt;
+            savedFollowEntity = newEnt;
+            followRange = keepRange;
+          }
+        }
+      }
+
+      firstLoadDone = true;
+    }
+
+    // ----------------------------------------------------------------------
+    // Info panel — prati trenutnu poziciju odabrane (ili prve) sonde
+    // ----------------------------------------------------------------------
+    function nearestPacket(fe, time) {
+      // Nađi paket najbliži trenutnom vremenu sata
+      const pkts = fe.packets;
+      let best = pkts[0], bestDiff = Infinity;
+      for (let i = 0; i < pkts.length; i++) {
+        const t = (typeof pkts[i]._rx_time === 'number' && pkts[i]._rx_time > 0)
+          ? Cesium.JulianDate.fromDate(new Date(pkts[i]._rx_time * 1000))
+          : null;
+        if (!t) { best = pkts[i]; continue; }
+        const d = Math.abs(Cesium.JulianDate.secondsDifference(time, t));
+        if (d < bestDiff) { bestDiff = d; best = pkts[i]; }
+      }
+      return best;
+    }
+
+    function updateInfoPanel() {
+      const cs = followCallsign || flightSel.value;
+      const target = (cs && cs !== '__all__' && flightEntities[cs])
+        ? cs
+        : Object.keys(flightEntities)[0];
+      const fe = flightEntities[target];
+      if (!fe) { infoPanel.classList.add('hidden'); return; }
+
+      const p = nearestPacket(fe, viewer.clock.currentTime);
+      if (!p) return;
+
+      infoPanel.classList.remove('hidden');
+      document.getElementById('ipCs').textContent = target;
+      const phEl = document.getElementById('ipPhase');
+      phEl.textContent = phaseLabel(p.phase);
+      phEl.style.background = (PHASE_COLORS[p.phase] || '#64748b');
+      phEl.style.color = '#0f172a';
+
+      document.getElementById('ipAlt').textContent  = p.altitude != null ? p.altitude.toFixed(0) + ' m' : '—';
+      document.getElementById('ipLat').textContent  = p.latitude != null ? p.latitude.toFixed(5) + '°' : '—';
+      document.getElementById('ipLon').textContent  = p.longitude != null ? p.longitude.toFixed(5) + '°' : '—';
+      document.getElementById('ipClimb').textContent = p.climb_rate != null
+        ? (p.climb_rate > 0 ? '+' : '') + p.climb_rate.toFixed(1) + ' m/s' : '—';
+      document.getElementById('ipTime').textContent = p.time || '—';
+    }
+
+    // ----------------------------------------------------------------------
+    // Kamera
+    // ----------------------------------------------------------------------
+    function flyToAll() {
+      if (typeof orbitMode !== 'undefined' && orbitMode) stopOrbit();
+      const entities = [];
+      Object.values(flightEntities).forEach(fe => entities.push(fe.pathEntity));
+      if (entities.length === 0) return;
+      viewer.flyTo(entities, {
+        duration: 1.5,
+        offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-35), 0),
+      });
+    }
+
+    function topDownView() {
+      if (typeof orbitMode !== 'undefined' && orbitMode) stopOrbit();
+      const cs = flightSel.value;
+      const target = (cs && cs !== '__all__' && flightEntities[cs]) ? flightEntities[cs] : null;
+      const ent = target ? target.pathEntity : Object.values(flightEntities)[0]?.pathEntity;
+      if (!ent) return;
+      viewer.flyTo(ent, {
+        duration: 1.2,
+        offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-89), 0),
+      });
+    }
+
+    // ----------------------------------------------------------------------
+    // UI eventi
+    // ----------------------------------------------------------------------
+    document.getElementById('btnPlay').addEventListener('click', () => {
+      viewer.clock.shouldAnimate = !viewer.clock.shouldAnimate;
+      document.getElementById('btnPlay').textContent =
+        viewer.clock.shouldAnimate ? '⏸ ' + L('pause') : '▶ ' + L('play');
+    });
+
+    document.getElementById('btnFollow').addEventListener('click', () => {
+      if (orbitMode) stopOrbit();
+      followMode = !followMode;
+      const cs = flightSel.value;
+      const target = (cs && cs !== '__all__' && flightEntities[cs])
+        ? cs : Object.keys(flightEntities)[0];
+      if (followMode && target && flightEntities[target]) {
+        followCallsign = target;
+        const ent = flightEntities[target].balloonEntity;
+        // Postavi razuman početni pogled (inače Cesium zumira preblizu malenom balonu)
+        const p = ent.position.getValue(viewer.clock.currentTime);
+        if (Cesium.defined(p)) {
+          viewer.camera.lookAt(
+            p,
+            new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-25), followRange)
+          );
+          viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+        }
+        viewer.trackedEntity = ent;
+        savedFollowEntity = ent;
+        document.getElementById('btnFollow').textContent = '🎥 ' + L('unfollow');
+      } else {
+        followCallsign = null;
+        viewer.trackedEntity = undefined;
+        savedFollowEntity = null;
+        document.getElementById('btnFollow').textContent = '🎥 ' + L('follow');
+      }
+    });
+
+    document.getElementById('btnTop').addEventListener('click', topDownView);
+    document.getElementById('btnRefresh').addEventListener('click', () => loadFlights(true));
+
+    // ----------------------------------------------------------------------
+    // Auto-orbit: kamera se sama vrti oko balona
+    //   - lookAt zaključa kameru na poziciju balona i kruži po headingu
+    //   - radi i dok je let pauziran (balon stoji) i tijekom reprodukcije
+    //   - korisnik može mišem mijenjati nagib/udaljenost; mi mijenjamo samo heading
+    // ----------------------------------------------------------------------
+    let orbitMode = false;
+    let orbitHeading = 0;                 // radijani
+    let orbitPitch = Cesium.Math.toRadians(-25);
+    let orbitRange = 4000;                // metara od balona (početno)
+    let orbitDegPerSec = 24;              // °/s — vezano na klizač
+    let orbitLastTs = 0;                  // za izračun delte neovisno o FPS-u
+
+    // Klizač brzine vrtnje
+    const orbitSpeedEl = document.getElementById('orbitSpeed');
+    const orbitSpeedValEl = document.getElementById('orbitSpeedVal');
+    function applyOrbitSpeed() {
+      orbitDegPerSec = parseInt(orbitSpeedEl.value, 10) || 24;
+      orbitSpeedValEl.textContent = orbitDegPerSec + '°/s';
+    }
+    orbitSpeedEl.addEventListener('input', applyOrbitSpeed);
+    applyOrbitSpeed();
+
+    function orbitTarget() {
+      const cs = flightSel.value;
+      const target = (cs && cs !== '__all__' && flightEntities[cs])
+        ? cs : Object.keys(flightEntities)[0];
+      return flightEntities[target] ? flightEntities[target].balloonEntity : null;
+    }
+
+    function startOrbit() {
+      const ent = orbitTarget();
+      if (!ent) return;
+      orbitMode = true;
+      orbitLastTs = performance.now();
+      // Isključi obično praćenje da lookAt ne kolidira
+      viewer.trackedEntity = undefined;
+      document.getElementById('btnOrbit').textContent = '⏹ ' + L('orbit_stop');
+      document.getElementById('btnOrbit').style.background = 'rgba(59,130,246,0.9)';
+    }
+
+    function stopOrbit() {
+      orbitMode = false;
+      viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY); // otključaj kameru
+      document.getElementById('btnOrbit').textContent = '🔄 ' + L('orbit');
+      document.getElementById('btnOrbit').style.background = '';
+    }
+
+    document.getElementById('btnOrbit').addEventListener('click', () => {
+      if (orbitMode) stopOrbit(); else startOrbit();
+    });
+
+    // Petlja orbitiranja — brzina u °/s neovisna o broju frameova
+    viewer.scene.postUpdate.addEventListener(() => {
+      if (!orbitMode) return;
+      const ent = orbitTarget();
+      if (!ent) { stopOrbit(); return; }
+      const pos = ent.position.getValue(viewer.clock.currentTime);
+      if (!Cesium.defined(pos)) return;
+      const now = performance.now();
+      const dt = Math.min((now - orbitLastTs) / 1000, 0.1); // s, cap protiv skokova
+      orbitLastTs = now;
+      orbitHeading += Cesium.Math.toRadians(orbitDegPerSec) * dt;
+      if (orbitHeading > Cesium.Math.TWO_PI) orbitHeading -= Cesium.Math.TWO_PI;
+      viewer.camera.lookAt(
+        pos,
+        new Cesium.HeadingPitchRange(orbitHeading, orbitPitch, orbitRange)
+      );
+    });
+
+    // Kotačić miša mijenja udaljenost orbite (zoom prema balonu)
+    viewer.screenSpaceEventHandler.setInputAction((wheel) => {
+      if (!orbitMode) return;
+      orbitRange *= (wheel > 0 ? 0.9 : 1.1);
+      orbitRange = Math.min(Math.max(orbitRange, 300), 200000);
+    }, Cesium.ScreenSpaceEventType.WHEEL);
+
+    flightSel.addEventListener('change', () => {
+      const cs = flightSel.value;
+      if (cs === '__all__') {
+        viewer.trackedEntity = undefined;
+        followCallsign = null;
+        followMode = false;
+        document.getElementById('btnFollow').textContent = '🎥 ' + L('follow');
+        flyToAll();
+      } else if (flightEntities[cs]) {
+        if (followMode) {
+          followCallsign = cs;
+          viewer.trackedEntity = flightEntities[cs].balloonEntity;
+        } else {
+          viewer.flyTo(flightEntities[cs].pathEntity, {
+            duration: 1.2,
+            offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-35), 0),
+          });
+        }
+      }
+      updateInfoPanel();
+    });
+
+    // Klik na balon → odaberi ga u dropdownu
+    viewer.screenSpaceEventHandler.setInputAction((click) => {
+      const picked = viewer.scene.pick(click.position);
+      if (Cesium.defined(picked) && picked.id && picked.id.id &&
+          String(picked.id.id).startsWith('balloon_')) {
+        const cs = String(picked.id.id).replace('balloon_', '');
+        if (flightEntities[cs]) { flightSel.value = cs; flightSel.dispatchEvent(new Event('change')); }
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    // ----------------------------------------------------------------------
+    // Start
+    // ----------------------------------------------------------------------
+    loadFlights();   // prvo učitavanje (namjesti kameru/sat)
+
+    // Auto-osvježi svakih 30 s — tiho, bez diranja kamere/orbite/sata
+    setInterval(() => { loadFlights(true); }, 30000);
+  })();
+  </script>
+</body>
+</html>

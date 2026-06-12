@@ -88,6 +88,81 @@
     .collapsible-panel-body[data-panel-id="flight-analysis"].collapsed {
       max-height: 0;
     }
+
+    /* ========== HISTORY MODAL ========== */
+    .history-tab-content { display: block; }
+    .history-tab-content.hidden { display: none; }
+
+    .history-tab-btn.active {
+      border-bottom-color: #3b82f6 !important;
+      color: #fff !important;
+    }
+
+    /* History tablica - hover efekt */
+    #historyTableBody tr {
+      transition: background 0.15s ease;
+    }
+    #historyTableBody tr:hover {
+      background: rgba(59, 130, 246, 0.06);
+    }
+    #historyTableBody tr.selected {
+      background: rgba(59, 130, 246, 0.12);
+    }
+    #historyTableBody td {
+      padding: 0.75rem;
+      border-top: 1px solid rgb(30, 41, 59);
+    }
+
+    #historyCompareTableBody td {
+      padding: 0.75rem;
+      border-top: 1px solid rgb(30, 41, 59);
+    }
+
+    /* Compare chips */
+    .history-compare-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.375rem 0.75rem;
+      background: rgb(30, 41, 59);
+      border: 1px solid rgb(51, 65, 85);
+      border-radius: 0.5rem;
+      font-size: 0.75rem;
+      font-family: ui-monospace, monospace;
+    }
+    .history-compare-chip button {
+      color: rgb(148, 163, 184);
+      cursor: pointer;
+      transition: color 0.15s ease;
+    }
+    .history-compare-chip button:hover { color: #ef4444; }
+
+    /* History mapa - Leaflet layer control vidljiv */
+    #historyMap .leaflet-control-layers {
+      background: rgb(15, 23, 42);
+      color: #e2e8f0;
+      border: 1px solid rgb(51, 65, 85);
+    }
+    #historyMap .leaflet-control-layers-toggle {
+      background-color: rgb(15, 23, 42);
+    }
+
+    /* Replay speed gumbi - active state */
+    .history-speed-btn.active {
+      background: #2563eb;
+      color: #fff;
+    }
+
+    /* Custom scrollbar za history tablicu */
+    #historyTabList::-webkit-scrollbar,
+    #historyTabAnalyze::-webkit-scrollbar,
+    #historyTabCompare::-webkit-scrollbar { width: 8px; }
+    #historyTabList::-webkit-scrollbar-thumb,
+    #historyTabAnalyze::-webkit-scrollbar-thumb,
+    #historyTabCompare::-webkit-scrollbar-thumb {
+      background: rgb(51, 65, 85);
+      border-radius: 4px;
+    }
   </style>
 </head>
 
@@ -102,7 +177,7 @@
         </div>
         <div>
           <h1 class="text-lg font-semibold leading-none">Horus Web</h1>
-          <p class="text-xs text-slate-400">Balloon Telemetry Decoder v1.6</p>
+          <p class="text-xs text-slate-400">Balloon Telemetry Decoder v1.8</p>
         </div>
       </div>
 
@@ -123,6 +198,12 @@
           class="p-2 rounded-lg hover:bg-slate-800 transition"
           title="O aplikaciji" data-i18n-title="header.about">
           <i data-lucide="info" class="w-5 h-5"></i>
+        </button>
+
+        <button id="historyBtn"
+          class="p-2 rounded-lg hover:bg-slate-800 transition"
+          title="Povijest letova" data-i18n-title="header.history">
+          <i data-lucide="history" class="w-5 h-5"></i>
         </button>
 
         <button id="settingsBtn"
@@ -215,6 +296,12 @@
             <p id="audioDeviceHint" class="text-xs text-slate-500 mt-1 hidden"></p>
           </div>
 
+          <div id="udpPortSection" class="hidden">
+            <label class="text-xs text-slate-400" data-i18n="sidebar.udp_port">UDP Port</label>
+            <input id="udpPort" type="number" min="1" max="65535" value="7355" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
+            <p class="text-xs text-slate-500 mt-1" data-i18n="sidebar.udp_port_hint">Port na kojem se prima UDP audio (default: 7355 za GQRX)</p>
+          </div>
+
           <div>
             <label class="text-xs text-slate-400" data-i18n="sidebar.sample_rate">Sample rate (Hz)</label>
             <select id="sampleRate" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
@@ -241,6 +328,20 @@
               <label class="text-xs text-slate-400" data-i18n="sidebar.output_device">Output uređaj</label>
               <select id="audioOutputDevice" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500" disabled></select>
               <p id="audioMonitorHint" class="text-xs text-slate-500 mt-1 hidden"></p>
+
+              <!-- Audio volume (glasnoća preslušavanja) — neovisno o RF gainu -->
+              <div class="mt-3">
+                <div class="flex items-center justify-between">
+                  <label class="text-xs text-slate-400 flex items-center gap-1.5">
+                    <i data-lucide="volume-1" class="w-3.5 h-3.5"></i>
+                    <span data-i18n="sidebar.audio_volume">Glasnoća</span>
+                  </label>
+                  <span id="audioVolumeValue" class="text-xs text-slate-300 tabular-nums">100%</span>
+                </div>
+                <input id="audioVolume" type="range" min="0" max="100" step="5" value="100"
+                  class="w-full mt-1 accent-brand-500 cursor-pointer">
+                <p class="text-xs text-slate-500 mt-1" data-i18n="sidebar.audio_volume_hint">Glasnoća preslušavanja (neovisno o RF gainu)</p>
+              </div>
             </div>
           </div>
         </div>
@@ -262,6 +363,11 @@
           <div>
             <label class="text-xs text-slate-400" data-i18n="sidebar.baud_rate">Baud rate</label>
             <select id="baudRate" class="w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"></select>
+          </div>
+
+          <!-- LoRa APRS info panel — prikazuje se samo kad je odabran LoRa modem -->
+          <div id="loraInfo" class="hidden mt-2 p-2 bg-slate-800/50 rounded-lg text-xs text-slate-400">
+            Provjeravam LoRa alate...
           </div>
         </div>
       </div>
@@ -512,6 +618,13 @@
               <input type="checkbox" id="showDayNight" class="accent-brand-500" />
               <span data-i18n="map.day_night">Dan/noć sjena</span>
             </label>
+            <button id="open3dViewBtn" type="button"
+                    class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-brand-600 hover:bg-brand-500 text-white font-medium transition"
+                    title="Otvori 3D prikaz leta u novom prozoru" data-i18n-title="map.view_3d_tip"
+                    onclick="event.stopPropagation()">
+              <i data-lucide="box" class="w-3.5 h-3.5"></i>
+              <span data-i18n="map.view_3d">3D prikaz</span>
+            </button>
           </div>
         </div>
         <div class="collapsible-panel-body" data-panel-id="map">
@@ -556,6 +669,32 @@
         <div class="collapsible-panel-body" data-panel-id="spectrum">
           <div class="p-4">
             <div class="h-80"><canvas id="spectrumChart"></canvas></div>
+
+            <!-- Waterfall — vidljiv samo u RTL-SDR modu -->
+            <div id="waterfallContainer" class="hidden mt-3">
+              <div class="flex items-center justify-between mb-1">
+                <div class="flex items-center gap-2 text-xs text-slate-400">
+                  <i data-lucide="waves" class="w-3.5 h-3.5"></i>
+                  <span data-i18n="spectrum.waterfall_title">Waterfall</span>
+                  <span class="text-slate-500" data-i18n="spectrum.waterfall_hint">(novije gore)</span>
+                </div>
+                <div class="flex items-center gap-3 text-[10px] text-slate-500">
+                  <div class="flex items-center gap-1.5">
+                    <span data-i18n="spectrum.waterfall_weak">slab</span>
+                    <div class="w-24 h-2 rounded-sm" style="background: linear-gradient(to right, #000033, #0033ff, #00ffff, #00ff00, #ffff00, #ff8800, #ff0000);"></div>
+                    <span data-i18n="spectrum.waterfall_strong">jak</span>
+                  </div>
+                </div>
+              </div>
+              <div class="relative bg-black rounded-lg overflow-hidden border border-slate-800">
+                <canvas id="waterfallCanvas" class="block w-full" style="height: 160px;"></canvas>
+                <!-- Vertikalna oznaka target frekvencije -->
+                <div id="waterfallTargetMarker" class="absolute top-0 bottom-0 w-px bg-red-500/70 pointer-events-none hidden" style="left: 50%;">
+                  <div class="absolute -top-px left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+                </div>
+              </div>
+            </div>
+
             <div class="mt-3 flex items-center gap-3">
               <span class="text-xs text-slate-500 w-12">-100</span>
               <div class="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden relative">
@@ -794,6 +933,370 @@
 
     </section>
   </main>
+
+  <!-- ================== HISTORY MODAL ================== -->
+  <div id="historyModal"
+       class="horus-modal-overlay hidden fixed inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+       role="dialog" aria-modal="true" aria-labelledby="historyTitle">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-screen-2xl flex flex-col" style="max-height: 95vh; height: 95vh;">
+
+      <!-- Header -->
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800 flex-shrink-0">
+        <h2 id="historyTitle" class="text-lg font-semibold flex items-center gap-2">
+          <i data-lucide="history" class="w-5 h-5 text-brand-500"></i>
+          <span data-i18n="history.title">Povijest letova</span>
+        </h2>
+        <div class="flex items-center gap-2">
+          <button id="historyRefreshBtn" class="p-1.5 rounded-lg hover:bg-slate-800 transition" title="Osvježi" data-i18n-title="history.refresh">
+            <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+          </button>
+          <button id="closeHistoryBtn" class="p-1.5 rounded-lg hover:bg-slate-800 transition" aria-label="Zatvori">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="flex items-center gap-1 px-5 pt-3 border-b border-slate-800 flex-shrink-0">
+        <button class="history-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-brand-500 text-white transition"
+                data-tab="list">
+          <i data-lucide="list" class="w-4 h-4 inline-block mr-1"></i>
+          <span data-i18n="history.tab_list">Tablica sondi</span>
+        </button>
+        <button class="history-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition"
+                data-tab="analyze">
+          <i data-lucide="line-chart" class="w-4 h-4 inline-block mr-1"></i>
+          <span data-i18n="history.tab_analyze">Analiza leta</span>
+        </button>
+        <button class="history-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition"
+                data-tab="compare">
+          <i data-lucide="git-compare" class="w-4 h-4 inline-block mr-1"></i>
+          <span data-i18n="history.tab_compare">Usporedba</span>
+        </button>
+        <button class="history-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition"
+                data-tab="replay">
+          <i data-lucide="play-circle" class="w-4 h-4 inline-block mr-1"></i>
+          <span data-i18n="history.tab_replay">Repriza leta</span>
+        </button>
+      </div>
+
+      <!-- Tab content -->
+      <div class="flex-1 overflow-hidden">
+
+        <!-- === TAB 1: LIST === -->
+        <div id="historyTabList" class="history-tab-content h-full overflow-y-auto p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3 flex-wrap">
+              <div class="relative">
+                <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"></i>
+                <input id="historySearchInput" type="text"
+                       placeholder="Pretraži po callsignu ili imenu fajla..."
+                       data-i18n-placeholder="history.search_placeholder"
+                       class="bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-brand-500 w-72" />
+              </div>
+              <select id="historyFilterFormat" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500">
+                <option value="all" data-i18n="history.format_all">Svi formati</option>
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+              </select>
+            </div>
+            <div class="text-xs text-slate-500">
+              <span id="historyFileCount">0</span> <span data-i18n="history.files">datoteka</span>
+            </div>
+          </div>
+
+          <div class="bg-slate-950 border border-slate-800 rounded-lg overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-slate-900 text-slate-400 text-xs uppercase tracking-wider">
+                  <tr>
+                    <th class="px-3 py-3 text-left font-semibold cursor-pointer hover:text-white transition" data-sort="name">
+                      <span data-i18n="history.col_file">Datoteka</span>
+                    </th>
+                    <th class="px-3 py-3 text-left font-semibold cursor-pointer hover:text-white transition" data-sort="callsign">
+                      <span data-i18n="history.col_callsign">Callsign</span>
+                    </th>
+                    <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_packets">Paketi</th>
+                    <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_max_alt">Max visina</th>
+                    <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_distance">Udaljenost</th>
+                    <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_duration">Trajanje</th>
+                    <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_phase">Faza</th>
+                    <th class="px-3 py-3 text-left font-semibold cursor-pointer hover:text-white transition" data-sort="modified">
+                      <span data-i18n="history.col_date">Datum</span>
+                    </th>
+                    <th class="px-3 py-3 text-right font-semibold" data-i18n="history.col_actions">Akcije</th>
+                  </tr>
+                </thead>
+                <tbody id="historyTableBody">
+                  <tr>
+                    <td colspan="9" class="text-center text-slate-500 py-12" data-i18n="history.loading">
+                      Učitavanje...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- === TAB 2: ANALYZE === -->
+        <div id="historyTabAnalyze" class="history-tab-content hidden h-full overflow-y-auto p-5">
+          <div id="historyAnalyzeEmpty" class="text-center text-slate-500 py-20">
+            <i data-lucide="line-chart" class="w-16 h-16 mx-auto mb-4 opacity-30"></i>
+            <p class="text-lg mb-2" data-i18n="history.analyze_empty">Nije odabran nijedan let</p>
+            <p class="text-sm" data-i18n="history.analyze_empty_hint">Vrati se na karticu "Tablica sondi" i klikni "Analiza" na nekom letu.</p>
+          </div>
+
+          <div id="historyAnalyzeContent" class="hidden space-y-4">
+            <!-- Naslov + meta -->
+            <div class="bg-slate-950 border border-slate-800 rounded-lg p-4">
+              <div class="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full" id="historyAnalyzeColor" style="background:#3b82f6"></span>
+                    <span id="historyAnalyzeCallsign">—</span>
+                  </h3>
+                  <p class="text-xs text-slate-500 mt-1" id="historyAnalyzeFilename">—</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button id="historyAnalyzeReplayBtn" class="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm flex items-center gap-1.5 transition">
+                    <i data-lucide="play" class="w-4 h-4"></i>
+                    <span data-i18n="history.btn_replay">Repriza</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- KPI kartice -->
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <div class="text-xs text-slate-500 mb-1" data-i18n="history.k_packets">Paketa</div>
+                <div class="text-lg font-bold font-mono" id="historyKPackets">—</div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <div class="text-xs text-slate-500 mb-1" data-i18n="history.k_max_alt">Max visina</div>
+                <div class="text-lg font-bold font-mono" id="historyKMaxAlt">—</div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <div class="text-xs text-slate-500 mb-1" data-i18n="history.k_distance">Udaljenost</div>
+                <div class="text-lg font-bold font-mono" id="historyKDistance">—</div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <div class="text-xs text-slate-500 mb-1" data-i18n="history.k_duration">Trajanje</div>
+                <div class="text-lg font-bold font-mono" id="historyKDuration">—</div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <div class="text-xs text-slate-500 mb-1" data-i18n="history.k_avg_climb">Avg climb</div>
+                <div class="text-lg font-bold font-mono" id="historyKAvgClimb">—</div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <div class="text-xs text-slate-500 mb-1" data-i18n="history.k_avg_speed">Avg brzina</div>
+                <div class="text-lg font-bold font-mono" id="historyKAvgSpeed">—</div>
+              </div>
+            </div>
+
+            <!-- Grafovi -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <i data-lucide="trending-up" class="w-4 h-4" style="color:#f59e0b"></i>
+                  <span data-i18n="history.chart_altitude">Visina (m)</span>
+                </h4>
+                <div class="h-56"><canvas id="historyAltChart"></canvas></div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <i data-lucide="thermometer" class="w-4 h-4" style="color:#ef4444"></i>
+                  <span data-i18n="history.chart_temp">Temperatura (°C)</span>
+                </h4>
+                <div class="h-56"><canvas id="historyTempChart"></canvas></div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <i data-lucide="battery" class="w-4 h-4" style="color:#10b981"></i>
+                  <span data-i18n="history.chart_battery">Baterija (V)</span>
+                </h4>
+                <div class="h-56"><canvas id="historyBattChart"></canvas></div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <i data-lucide="trending-up" class="w-4 h-4" style="color:#8b5cf6"></i>
+                  <span data-i18n="history.chart_climb">Climb rate (m/s)</span>
+                </h4>
+                <div class="h-56"><canvas id="historyClimbChart"></canvas></div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <i data-lucide="gauge" class="w-4 h-4" style="color:#06b6d4"></i>
+                  <span data-i18n="history.chart_speed">Horiz. brzina (km/h)</span>
+                </h4>
+                <div class="h-56"><canvas id="historySpeedChart"></canvas></div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <i data-lucide="signal" class="w-4 h-4" style="color:#ec4899"></i>
+                  <span data-i18n="history.chart_snr">SNR (dB)</span>
+                </h4>
+                <div class="h-56"><canvas id="historySnrChart"></canvas></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- === TAB 3: COMPARE === -->
+        <div id="historyTabCompare" class="history-tab-content hidden h-full overflow-y-auto p-5">
+          <div class="bg-slate-950 border border-slate-800 rounded-lg p-4 mb-4">
+            <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+              <h3 class="text-base font-semibold flex items-center gap-2">
+                <i data-lucide="git-compare" class="w-5 h-5"></i>
+                <span data-i18n="history.compare_title">Usporedba letova</span>
+                <span class="text-xs text-slate-500 ml-2">
+                  (<span id="historyCompareCount">0</span> <span data-i18n="history.selected">odabrano</span>)
+                </span>
+              </h3>
+              <div class="flex gap-2">
+                <button id="historyCompareClearBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm flex items-center gap-1.5 transition">
+                  <i data-lucide="trash-2" class="w-4 h-4"></i>
+                  <span data-i18n="history.compare_clear">Očisti</span>
+                </button>
+              </div>
+            </div>
+            <p class="text-xs text-slate-500" data-i18n="history.compare_hint">
+              Vrati se na karticu "Tablica sondi" i checkbox-om odaberi 2 ili više letova za usporedbu.
+            </p>
+            <div id="historyCompareChips" class="flex flex-wrap gap-2 mt-3"></div>
+          </div>
+
+          <div id="historyCompareEmpty" class="text-center text-slate-500 py-20">
+            <i data-lucide="git-compare" class="w-16 h-16 mx-auto mb-4 opacity-30"></i>
+            <p class="text-lg" data-i18n="history.compare_empty">Odaberi 2+ letova iz tablice za usporedbu</p>
+          </div>
+
+          <div id="historyCompareContent" class="hidden space-y-4">
+            <!-- Tablica usporedbe -->
+            <div class="bg-slate-950 border border-slate-800 rounded-lg overflow-hidden">
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead class="bg-slate-900 text-slate-400 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_callsign">Callsign</th>
+                      <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_packets">Paketi</th>
+                      <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_max_alt">Max visina</th>
+                      <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_distance">Udaljenost</th>
+                      <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_duration">Trajanje</th>
+                      <th class="px-3 py-3 text-left font-semibold" data-i18n="history.k_avg_climb">Avg climb</th>
+                      <th class="px-3 py-3 text-left font-semibold" data-i18n="history.k_avg_speed">Avg brzina</th>
+                      <th class="px-3 py-3 text-left font-semibold" data-i18n="history.col_phase">Faza</th>
+                    </tr>
+                  </thead>
+                  <tbody id="historyCompareTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Grafovi overlay -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2" data-i18n="history.chart_altitude_cmp">Visina (m) — preklopljeno</h4>
+                <div class="h-64"><canvas id="historyCmpAltChart"></canvas></div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2" data-i18n="history.chart_climb_cmp">Climb rate (m/s) — preklopljeno</h4>
+                <div class="h-64"><canvas id="historyCmpClimbChart"></canvas></div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2" data-i18n="history.chart_temp_cmp">Temperatura (°C) — preklopljeno</h4>
+                <div class="h-64"><canvas id="historyCmpTempChart"></canvas></div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                <h4 class="text-sm font-semibold mb-2" data-i18n="history.chart_speed_cmp">Horiz. brzina (km/h) — preklopljeno</h4>
+                <div class="h-64"><canvas id="historyCmpSpeedChart"></canvas></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- === TAB 4: REPLAY === -->
+        <div id="historyTabReplay" class="history-tab-content hidden h-full flex flex-col">
+          <div id="historyReplayEmpty" class="flex-1 flex items-center justify-center">
+            <div class="text-center text-slate-500">
+              <i data-lucide="play-circle" class="w-16 h-16 mx-auto mb-4 opacity-30"></i>
+              <p class="text-lg mb-2" data-i18n="history.replay_empty">Nije odabran nijedan let</p>
+              <p class="text-sm" data-i18n="history.replay_empty_hint">Vrati se na karticu "Tablica sondi" i klikni "Repriza" na nekom letu.</p>
+            </div>
+          </div>
+
+          <div id="historyReplayContent" class="hidden flex-1 flex flex-col overflow-hidden">
+            <!-- Replay header / info bar -->
+            <div class="px-5 py-3 border-b border-slate-800 bg-slate-950 flex items-center justify-between flex-wrap gap-3 flex-shrink-0">
+              <div class="flex items-center gap-4">
+                <div>
+                  <div class="text-xs text-slate-500" data-i18n="history.replay_balloon">Balon</div>
+                  <div class="font-mono font-bold text-base flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full" id="historyReplayColor" style="background:#3b82f6"></span>
+                    <span id="historyReplayCallsign">—</span>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-xs text-slate-500" data-i18n="history.replay_time">Vrijeme</div>
+                  <div class="font-mono text-sm" id="historyReplayClock">—</div>
+                </div>
+                <div>
+                  <div class="text-xs text-slate-500" data-i18n="history.replay_altitude">Visina</div>
+                  <div class="font-mono text-sm" id="historyReplayAlt">— m</div>
+                </div>
+                <div>
+                  <div class="text-xs text-slate-500" data-i18n="history.replay_climb">Climb</div>
+                  <div class="font-mono text-sm" id="historyReplayClimb">— m/s</div>
+                </div>
+                <div>
+                  <div class="text-xs text-slate-500" data-i18n="history.replay_speed">Brzina</div>
+                  <div class="font-mono text-sm" id="historyReplaySpeed">— km/h</div>
+                </div>
+                <div>
+                  <div class="text-xs text-slate-500" data-i18n="history.replay_progress">Paket</div>
+                  <div class="font-mono text-sm"><span id="historyReplayPktIdx">0</span>/<span id="historyReplayPktTotal">0</span></div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500" data-i18n="history.replay_speed_label">Brzina:</span>
+                <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
+                  <button class="history-speed-btn px-2.5 py-1 rounded text-xs font-mono bg-brand-600 text-white" data-speed="100">100×</button>
+                  <button class="history-speed-btn px-2.5 py-1 rounded text-xs font-mono hover:bg-slate-700 transition" data-speed="200">200×</button>
+                  <button class="history-speed-btn px-2.5 py-1 rounded text-xs font-mono hover:bg-slate-700 transition" data-speed="500">500×</button>
+                  <button class="history-speed-btn px-2.5 py-1 rounded text-xs font-mono hover:bg-slate-700 transition" data-speed="1000">1000×</button>
+                  <button class="history-speed-btn px-2.5 py-1 rounded text-xs font-mono hover:bg-slate-700 transition" data-speed="3000">3000×</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mapa -->
+            <div class="flex-1 relative">
+              <div id="historyMap" class="w-full h-full" style="min-height: 400px;"></div>
+            </div>
+
+            <!-- Kontrole -->
+            <div class="px-5 py-3 border-t border-slate-800 bg-slate-950 flex-shrink-0">
+              <div class="flex items-center gap-3">
+                <button id="historyReplayPlayBtn" class="p-2 rounded-lg bg-brand-600 hover:bg-brand-700 transition" title="Play/Pause" data-i18n-title="history.replay_play">
+                  <i data-lucide="play" class="w-5 h-5" id="historyReplayPlayIcon"></i>
+                </button>
+                <button id="historyReplayRestartBtn" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition" title="Restart" data-i18n-title="history.replay_restart">
+                  <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+                </button>
+                <div class="flex-1 flex items-center gap-2">
+                  <span class="text-xs text-slate-500 font-mono w-16" id="historyReplayTimeStart">00:00</span>
+                  <input id="historyReplaySlider" type="range" min="0" max="100" value="0" step="1" class="flex-1 accent-brand-500" />
+                  <span class="text-xs text-slate-500 font-mono w-16 text-right" id="historyReplayTimeEnd">00:00</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
 
   <!-- ================== SETTINGS MODAL ================== -->
   <div id="settingsModal"
@@ -1267,7 +1770,7 @@
               <i data-lucide="tag" class="w-4 h-4"></i>
               <span data-i18n="about.version">Verzija</span>
             </span>
-            <span class="font-mono text-white">1.6</span>
+            <span class="font-mono text-white">1.8</span>
           </div>
 
           <div class="flex items-center justify-between py-2 border-b border-slate-800/60">
@@ -1372,6 +1875,7 @@
   <script src="/static/js/map.js"></script>
   <script src="/static/js/charts.js"></script>
   <script src="/static/js/spectrum.js"></script>
+  <script src="/static/js/history.js"></script>
   <script src="/static/js/app.js"></script>
   <script>lucide.createIcons();</script>
 </body>
