@@ -36,6 +36,16 @@ pyaudio>=0.2.13                 # Audio input/output (requires PortAudio system 
 # Horus Web detects rtl_fm automatically via /api/rtl-sdr/detect.
 
 # ---------------------
+# LoRa APRS
+# ---------------------
+# Note: LoRa APRS decoding does NOT require a Python package — it uses the
+# external `rtl_fm` and `lorarx` (OE5DXL) command-line tools via a subprocess
+# pipeline. Place the `lorarx` binary in the `rtl-sdr/` subfolder. Download from:
+#   - http://oe5dxl.hamspirit.at:8025/aprs/bin/
+# On x86_64 the armv7hf build runs via qemu-user-static (ARM multiarch).
+# Horus Web checks availability via /api/lora/availability.
+
+# ---------------------
 # Horus Modem & Decoder
 # ---------------------
 horusdemodlib>=0.3.0            # Horus Binary v1/v2/v3 & RTTY modem, decoder, SondeHub uploader

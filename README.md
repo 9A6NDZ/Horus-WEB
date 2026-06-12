@@ -6,7 +6,7 @@ Modern web-based frontend for decoding and tracking high-altitude balloon (HAB) 
 
 Built as a full replacement for the original Horus GUI (Qt-based), Horus Web runs entirely in your browser and provides real-time telemetry decoding, mapping, charting, and flight analysis — all from a single `.exe` or Python script.
 
-**Version:** 1.7  
+**Version:** 1.8  
 **Author:** 9A6NDZ Zoran  
 **License:** GPL-3.0
 
@@ -16,7 +16,9 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 
 ### Decoding & Audio
 - Horus Binary v1/v2/v3 and RTTY (7N1, 7N2, 8N2) modem support
+- **LoRa APRS decoding** — receive LoRa APRS balloon trackers (TTGO/DL1NUX format) directly from RTL-SDR, with a dedicated live messages panel. Supports the 433.775 MHz LoRa APRS channel and EU868 profiles (SF7–SF12). Uses the `lorarx` decoder (OE5DXL) under the hood
 - Direct audio input from any sound card or via UDP audio stream (e.g. from SDR++)
+- **Configurable UDP audio port** — set the port used to receive the UDP audio stream directly from the UI (default 7355 for GQRX/SDR++); the runtime value is persisted in `decoder_config.json`
 - RTL-SDR Direct mode — receive signal directly from RTL-SDR dongle without external SDR software (configurable frequency, gain, PPM offset, bandwidth, bias tee)
 - Configurable baud rate, tone spacing, and mask estimator
 - Real-time FFT audio spectrum display with peak hold and tone detection
@@ -34,6 +36,7 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 - OpenWeatherMap overlay (clouds, precipitation, pressure, wind, temperature)
 - METAR data from nearby airports (via NOAA AWC)
 - Day/night shadow overlay — real-time solar terminator visualization on the map
+- **3D flight view** — open the selected flight in a separate window with a full 3D globe (CesiumJS, free open-source terrain), showing the balloon track, altitude profile, and terrain in three dimensions
 
 ### Flight Analysis
 - Real-time altitude, climb rate, horizontal speed, and course calculation
@@ -78,12 +81,13 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 
 ## System Requirements
 
-- **OS:** Windows 10 or Windows 11
+- **OS:** Windows 10/11, or Linux (Ubuntu x86_64 — primary development platform)
 - **Architecture:** 64-bit (x86_64)
 - **Browser:** Any modern browser (Chrome, Firefox, Edge)
 - **Audio:** Sound card or virtual audio cable for receiving audio from SDR software
+- **LoRa APRS (optional):** RTL-SDR dongle + the `lorarx` binary (OE5DXL) in `rtl-sdr/`
 
-No installation or Python required — everything is bundled in a single `.exe`.
+No installation or Python required on Windows — everything is bundled in a single `.exe`.
 
 ---
 
@@ -100,6 +104,10 @@ Configure SDR++ (or any SDR software) to output audio on a virtual audio cable, 
 
 You can also configure Horus Web to auto-launch SDR++ on startup via Settings → Startup Programs.
 
+### Optional: LoRa APRS
+
+To decode LoRa APRS balloon trackers, select the **LoRa APRS** modem in the sidebar. This mode uses an RTL-SDR dongle with the external `lorarx` decoder (OE5DXL) — place the `lorarx` binary in the `rtl-sdr/` subfolder (Backend) next to the executable. The default channel is 433.775 MHz; EU868 profiles with spreading factors SF7–SF12 are also supported. Decoded position and text packets appear in a dedicated LoRa messages panel and on the map.
+
 ### Optional: RTL-SDR Direct Mode
 
 If you have an RTL-SDR dongle, you can receive signals directly without any external SDR software. Enable the **RTL-SDR Direct** checkbox in the sidebar, set your frequency (MHz), gain, and other parameters, then click Start. Horus Web will use `rtl_fm` internally to capture and demodulate the signal.
@@ -115,11 +123,13 @@ horus-web/
 │   ├── horus_bridge.py      # Audio capture, modem interface, FFT, SondeHub upload
 │   ├── flight_analyzer.py   # Flight tracking, phase detection, alerts
 │   ├── telemlogger.py       # CSV/JSON telemetry logging
+│   ├── lora_decoder.py      # LoRa APRS decoder (rtl_fm → lorarx pipeline)
 │   ├── email_notifier.py    # SMTP email notifications
 │   └── pdf_report.py        # PDF flight report generation
 │
 ├── frontend/
 │   ├── index.html           # Main HTML page
+│   ├── cesium3d.html        # 3D flight view (CesiumJS, separate window)
 │   ├── css/
 │   │   └── style.css        # Custom styles (on top of Tailwind)
 │   └── js/
@@ -143,7 +153,7 @@ All configuration is stored as JSON files next to the executable (or `main.py`):
 | File | Purpose |
 |------|---------|
 | `station_config.json` | Station callsign, position, SondeHub and private server settings |
-| `decoder_config.json` | Last used audio device, modem, baud rate |
+| `decoder_config.json` | Last used audio device, modem, baud rate, UDP audio port |
 | `server_config.json` | Server port |
 | `logging_config.json` | Telemetry logging directory, format (CSV/JSON), enabled state |
 | `weather_config.json` | OpenWeatherMap API key |
@@ -177,6 +187,8 @@ Horus Web exposes a REST API on the same port as the web interface. All endpoint
 **Other:** `/api/alerts/config`, `/api/email/config`, `/api/email/test`, `/api/startup-programs/config`, `/api/monitor/start`, `/api/monitor/stop`, `/api/server/config`, `/api/server/restart`, `/api/browse`
 
 **RTL-SDR:** `/api/rtl-sdr/detect`
+
+**LoRa:** `/api/lora/availability` (checks `rtl_sdr`/`lorarx` binaries), `/api/lora/messages` (recent decoded LoRa packets for the messages panel)
 
 **WebSocket:** `ws://localhost:8000/ws` — real-time telemetry packets, FFT data, alerts, and status updates.
 
@@ -233,6 +245,8 @@ This project is a derivative work that uses [horusdemodlib](https://github.com/p
 
 RTL-SDR Direct mode does not use a Python binding — it invokes the standard `rtl_fm` command-line tool from [librtlsdr](https://github.com/rtlsdrblog/rtl-sdr-blog) as a subprocess. The bundled Windows `.exe` includes `rtl_fm.exe`; when running from source, install `rtl-sdr` from your package manager (Linux/macOS) or place the official Windows binaries in your PATH.
 
+**LoRa APRS** additionally uses the `lorarx` decoder by OE5DXL (from http://oe5dxl.hamspirit.at:8025/aprs/bin/), invoked via a `rtl_fm → lorarx` subprocess pipeline. Place the `lorarx` binary in the `rtl-sdr/` subfolder. On x86_64 the armv7hf build runs through `qemu-user-static` with ARM multiarch support.
+
 ### JavaScript (frontend, loaded via CDN)
 
 | Library | License | Link |
@@ -242,6 +256,7 @@ RTL-SDR Direct mode does not use a Python binding — it invokes the standard `r
 | [chartjs-adapter-date-fns](https://github.com/chartjs/chartjs-adapter-date-fns) | MIT | Date/time axis adapter |
 | [Tailwind CSS](https://tailwindcss.com/) | MIT | Utility-first CSS framework |
 | [Lucide Icons](https://lucide.dev/) | ISC | Icon set |
+| [CesiumJS](https://cesium.com/platform/cesiumjs/) | Apache-2.0 | 3D globe / flight view |
 
 ### Data Services
 
