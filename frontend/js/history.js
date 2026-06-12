@@ -32,7 +32,7 @@ const HorusHistory = (() => {
   let replayContext = null;    // { filename, callsign, packets, color }
   let replayState = {
     playing: false,
-    speed: 2,
+    speed: 100,
     pktIdx: 0,
     lastTickRealMs: 0,         // performance.now() reference
     lastTickSimMs: 0,          // simulated time relative to first packet (ms)
@@ -601,8 +601,17 @@ const HorusHistory = (() => {
 
   function drawAnalyzeCharts(packets, color) {
     const validPkts = packets.filter(p => !p.no_gps_fix && p._rx_time != null);
-    const t0 = validPkts[0]?._rx_time || 0;
-    const labels = validPkts.map(p => Math.round(p._rx_time - t0));   // sekunde od početka
+    // Koristimo pravo UTC vrijeme iz paketa umjesto relativnog od 00:00
+    const labels = validPkts.map(p => {
+      if (p.time) {
+        // time je "HH:MM:SS" — prikaži samo "HH:MM"
+        const parts = p.time.split(':');
+        return parts.length >= 2 ? parts[0] + ':' + parts[1] : p.time;
+      }
+      // Fallback na relativne sekunde ako nema time polja
+      const t0 = validPkts[0]?._rx_time || 0;
+      return fmtMMSS(Math.round(p._rx_time - t0));
+    });
 
     const altData = validPkts.map(p => p.altitude);
     const tempData = validPkts.map(p => p.temperature != null ? p.temperature : null);
@@ -618,7 +627,7 @@ const HorusHistory = (() => {
       plugins: { legend: { display: false }, tooltip: { intersect: false, mode: 'index' } },
       scales: {
         x: {
-          ticks: { color: '#94a3b8', maxTicksLimit: 8, callback: (v) => fmtMMSS(v) },
+          ticks: { color: '#94a3b8', maxTicksLimit: 8 },
           grid: { color: '#1e293b' }
         },
         y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }
@@ -986,8 +995,15 @@ const HorusHistory = (() => {
     const t0 = pkts[0]._rx_time;
     replayState.lastTickSimMs = (pkts[replayState.pktIdx]._rx_time - t0) * 1000;
 
-    document.getElementById('historyReplayPlayIcon').setAttribute('data-lucide', 'pause');
-    if (window.lucide) lucide.createIcons();
+    // Zamijeni ikonu play→pause bez globalnog lucide.createIcons()
+    // koji može baciti grešku na već-procesiranom SVG elementu
+    try {
+      const playBtn = document.getElementById('historyReplayPlayBtn');
+      if (playBtn) {
+        playBtn.innerHTML = '<i data-lucide="pause" class="w-5 h-5" id="historyReplayPlayIcon"></i>';
+        if (window.lucide) lucide.createIcons({ nodes: [playBtn] });
+      }
+    } catch (e) { console.warn('Replay icon swap error:', e); }
 
     function step() {
       if (!replayState.playing || !replayContext) return;
@@ -1025,8 +1041,13 @@ const HorusHistory = (() => {
       cancelAnimationFrame(replayRafId);
       replayRafId = null;
     }
-    document.getElementById('historyReplayPlayIcon').setAttribute('data-lucide', 'play');
-    if (window.lucide) lucide.createIcons();
+    try {
+      const pauseBtn = document.getElementById('historyReplayPlayBtn');
+      if (pauseBtn) {
+        pauseBtn.innerHTML = '<i data-lucide="play" class="w-5 h-5" id="historyReplayPlayIcon"></i>';
+        if (window.lucide) lucide.createIcons({ nodes: [pauseBtn] });
+      }
+    } catch (e) { console.warn('Replay icon swap error:', e); }
   }
 
   function stopReplay() {

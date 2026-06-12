@@ -12,6 +12,19 @@ const App = (() => {
 
   let savedDecoderConfig = null;
 
+  // --- Audio izlaz: lokalni (server PyAudio) vs browser (udaljeno računalo) ---
+  // Ako je stranica otvorena na istom računalu gdje je server (localhost),
+  // koristimo lokalne izlazne uređaje. Ako je otvorena s udaljenog računala
+  // (mrežna IP), audio se streama u browser i čuje na tom računalu.
+  const AUDIO_REMOTE = !['localhost', '127.0.0.1', '::1', ''].includes(
+    window.location.hostname
+  );
+  let browserAudioWs = null;       // WebSocket za PCM stream
+  let browserAudioCtx = null;      // AudioContext
+  let browserAudioNextTime = 0;    // scheduling cursor
+  let browserAudioRate = 48000;    // sample rate iz servera
+  let browserAudioActive = false;
+
   async function init() {
     HorusI18n.init();
     initTheme();
@@ -123,6 +136,13 @@ const App = (() => {
     // Audio Monitor — restauriraj odabrani output uređaj i stanje
     applyMonitorConfigToUI(cfg);
 
+    // UDP Port — restauriraj spremljeni port i pokaži/sakrij polje
+    if (cfg.udp_port) {
+      const udpPortEl = document.getElementById('udpPort');
+      if (udpPortEl) udpPortEl.value = cfg.udp_port;
+    }
+    onAudioDeviceChange();
+
     // RTL-SDR — restauriraj postavke
     applyRtlSdrConfigToUI(cfg);
   }
@@ -172,6 +192,26 @@ const App = (() => {
 
   function applyMonitorConfigToUI(cfg) {
     if (!cfg) return;
+
+    // Restauriraj zapamćenu glasnoću preslušavanja (vrijedi za oba moda).
+    // Pošalji je i na server da bridge ima ispravan volume nakon restarta.
+    if (cfg.monitor_volume !== undefined && cfg.monitor_volume !== null) {
+      const pct = Math.round(cfg.monitor_volume * 100);
+      const slider = document.getElementById('audioVolume');
+      const label = document.getElementById('audioVolumeValue');
+      if (slider) slider.value = pct;
+      if (label) label.textContent = `${pct}%`;
+      if (cfg.monitor_volume !== 1.0) {
+        sendAudioVolume(cfg.monitor_volume);
+      }
+    }
+
+    // Remote (browser) mod nema server izlazne uredaje za restaurirati —
+    // browser audio se uvijek pokreće ručno klikom (zbog autoplay politike).
+    if (AUDIO_REMOTE) {
+      setupBrowserAudioUI();
+      return;
+    }
 
     const cb = document.getElementById('audioMonitorEnabled');
     const fields = document.getElementById('audioMonitorFields');
@@ -341,10 +381,26 @@ const App = (() => {
     });
     document.getElementById('modemSelect').addEventListener('change', onModemChange);
 
+    // Audio device change — show/hide UDP port field
+    const audioDevSel = document.getElementById('audioDevice');
+    if (audioDevSel) audioDevSel.addEventListener('change', onAudioDeviceChange);
+
+    // UDP port change — update device label in dropdown
+    const udpPortInput = document.getElementById('udpPort');
+    if (udpPortInput) udpPortInput.addEventListener('input', updateUdpOptionLabel);
+
     // Audio Monitor toggle
     const monitorCb = document.getElementById('audioMonitorEnabled');
     if (monitorCb) {
       monitorCb.addEventListener('change', toggleAudioMonitor);
+    }
+
+    // Audio volume slider (glasnoća preslušavanja — neovisno o RF gainu)
+    const volSlider = document.getElementById('audioVolume');
+    if (volSlider) {
+      // 'input' za live prikaz postotka, 'change' za slanje na server
+      volSlider.addEventListener('input', onAudioVolumeInput);
+      volSlider.addEventListener('change', onAudioVolumeChange);
     }
 
     // RTL-SDR toggle
@@ -400,6 +456,15 @@ const App = (() => {
     const dayNightCb = document.getElementById('showDayNight');
     if (dayNightCb) dayNightCb.addEventListener('change', (e) => {
       HorusMap.setDayNightTerminator(e.target.checked);
+    });
+
+    // 3D PRIKAZ — otvori CesiumJS u novoj kartici (stara 2D karta ostaje netaknuta).
+    // Namjerno BEZ feature-stringa (širina/visina) jer to natjera Chrome da otvori
+    // "popup" prozor s vlastitom trakom za preuzimanja; obična kartica je nema.
+    const open3dBtn = document.getElementById('open3dViewBtn');
+    if (open3dBtn) open3dBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.open('/static/cesium3d.html', '_blank');
     });
 
     // ABOUT MODAL
@@ -1113,7 +1178,37 @@ const App = (() => {
     }
   }
 
+  function updateUdpOptionLabel() {
+    const sel = document.getElementById('audioDevice');
+    const portEl = document.getElementById('udpPort');
+    if (!sel || !portEl) return;
+    const port = parseInt(portEl.value, 10) || 7355;
+    for (const opt of sel.options) {
+      if (opt.dataset.udp === '1') {
+        opt.textContent = `UDP Audio (127.0.0.1:${port})`;
+        break;
+      }
+    }
+  }
+
+  function onAudioDeviceChange() {
+    const sel = document.getElementById('audioDevice');
+    const udpSection = document.getElementById('udpPortSection');
+    if (!sel || !udpSection) return;
+    const opt = sel.options[sel.selectedIndex];
+    const isUdp = opt?.dataset.udp === '1';
+    udpSection.classList.toggle('hidden', !isUdp);
+    if (isUdp) updateUdpOptionLabel();
+  }
+
   async function loadOutputDevices() {
+    // Remote mod: stranica je otvorena s udaljenog računala. Audio se sluša
+    // u browseru, pa ne nudimo server izlazne uređaje — browser koristi
+    // sistemski izlaz ovog (udaljenog) računala.
+    if (AUDIO_REMOTE) {
+      setupBrowserAudioUI();
+      return;
+    }
     try {
       const r = await fetch('/api/audio-output-devices');
       const devices = await r.json();
@@ -1140,6 +1235,21 @@ const App = (() => {
     }
   }
 
+  // Prilagodi Audio Monitor UI za remote (browser) mod: sakrij dropdown
+  // server uređaja, pokaži oznaku da se sluša na ovom računalu.
+  function setupBrowserAudioUI() {
+    const sel = document.getElementById('audioOutputDevice');
+    const label = document.querySelector('[data-i18n="sidebar.output_device"]');
+    const hint = document.getElementById('audioMonitorHint');
+    if (sel) sel.classList.add('hidden');
+    if (label) label.classList.add('hidden');
+    if (hint) {
+      hint.textContent = HorusI18n.t('sidebar.browser_audio_info');
+      hint.className = 'text-xs text-slate-400 mt-1';
+      hint.classList.remove('hidden');
+    }
+  }
+
   async function syncMonitorStatus() {
     try {
       const r = await fetch('/api/monitor/status');
@@ -1163,11 +1273,64 @@ const App = (() => {
     }
   }
 
+  // --------------------------------------------------------------------------
+  // Audio volume (glasnoća preslušavanja) — AUDIO gain, neovisan o RF gainu.
+  // Slider je 0–400 (%); šaljemo na server kao faktor 0.0–4.0.
+  // --------------------------------------------------------------------------
+  let _volumeSendTimer = null;
+
+  function onAudioVolumeInput(e) {
+    const pct = parseInt(e.target.value, 10) || 0;
+    const label = document.getElementById('audioVolumeValue');
+    if (label) label.textContent = `${pct}%`;
+    // Throttle slanja na server dok korisnik povlači (max ~svakih 120ms)
+    if (_volumeSendTimer) return;
+    _volumeSendTimer = setTimeout(() => {
+      _volumeSendTimer = null;
+      sendAudioVolume(pct / 100);
+    }, 120);
+  }
+
+  function onAudioVolumeChange(e) {
+    // Završni event — pošalji konačnu vrijednost (i otkaži throttle)
+    if (_volumeSendTimer) {
+      clearTimeout(_volumeSendTimer);
+      _volumeSendTimer = null;
+    }
+    const pct = parseInt(e.target.value, 10) || 0;
+    sendAudioVolume(pct / 100);
+  }
+
+  async function sendAudioVolume(volume) {
+    try {
+      await fetch('/api/monitor/volume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ volume }),
+      });
+    } catch (e) {
+      log('ERROR', `Volume: ${e.message}`);
+    }
+  }
+
   async function toggleAudioMonitor() {
     const cb = document.getElementById('audioMonitorEnabled');
     const fields = document.getElementById('audioMonitorFields');
     const sel = document.getElementById('audioOutputDevice');
     const hint = document.getElementById('audioMonitorHint');
+
+    // Remote (browser) mod — slušanje na udaljenom računalu preko Web Audio
+    if (AUDIO_REMOTE) {
+      if (cb.checked) {
+        if (fields) fields.classList.remove('hidden');
+        setupBrowserAudioUI();
+        await startBrowserAudio();
+      } else {
+        stopBrowserAudio();
+        if (fields) fields.classList.add('hidden');
+      }
+      return;
+    }
 
     if (cb.checked) {
       // Uključi — pokaži dropdown
@@ -1236,6 +1399,133 @@ const App = (() => {
     }
   }
 
+  // --------------------------------------------------------------------------
+  // Browser audio (remote mod) — reprodukcija PCM streama preko Web Audio API
+  // Audio se čuje na računalu gdje je otvoren browser (udaljeno računalo).
+  // --------------------------------------------------------------------------
+  async function startBrowserAudio() {
+    const hint = document.getElementById('audioMonitorHint');
+    const cb = document.getElementById('audioMonitorEnabled');
+
+    if (browserAudioActive) return;
+
+    try {
+      // Dohvati sample rate s servera
+      try {
+        const info = await (await fetch('/api/audio-stream-info')).json();
+        if (info && info.sample_rate) browserAudioRate = info.sample_rate;
+      } catch (_) { /* koristi default 48000 */ }
+
+      // AudioContext s rate-om streama (browser resampla na izlaz po potrebi)
+      const AC = window.AudioContext || window.webkitAudioContext;
+      browserAudioCtx = new AC();
+      // Neki browseri startaju context u 'suspended' — resume nakon user gesta
+      if (browserAudioCtx.state === 'suspended') {
+        await browserAudioCtx.resume();
+      }
+      browserAudioNextTime = browserAudioCtx.currentTime + 0.1;
+
+      // WebSocket za PCM (binarni frameovi int16 mono)
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const url = `${proto}://${window.location.host}/ws/audio`;
+      browserAudioWs = new WebSocket(url);
+      browserAudioWs.binaryType = 'arraybuffer';
+
+      browserAudioWs.onmessage = (ev) => {
+        if (typeof ev.data === 'string') {
+          // Prvi frame je JSON info — ažuriraj rate ako treba
+          try {
+            const info = JSON.parse(ev.data);
+            if (info && info.sample_rate) browserAudioRate = info.sample_rate;
+          } catch (_) {}
+          return;
+        }
+        if (ev.data.byteLength === 0) return; // keepalive
+        playPcmChunk(ev.data);
+      };
+
+      browserAudioWs.onclose = () => {
+        if (browserAudioActive) {
+          // Neočekivano zatvaranje — resetiraj UI
+          stopBrowserAudio();
+          if (cb) cb.checked = false;
+        }
+      };
+      browserAudioWs.onerror = () => {
+        log('ERROR', HorusI18n.t('app.browser_audio_error'));
+      };
+
+      browserAudioActive = true;
+      if (hint) {
+        hint.textContent = `🔊 ${HorusI18n.t('app.browser_audio_active')}`;
+        hint.className = 'text-xs text-emerald-400 mt-1';
+        hint.classList.remove('hidden');
+      }
+      log('INFO', HorusI18n.t('app.browser_audio_started'));
+    } catch (e) {
+      stopBrowserAudio();
+      if (cb) cb.checked = false;
+      if (hint) {
+        hint.textContent = `⚠ ${e.message}`;
+        hint.className = 'text-xs text-red-400 mt-1';
+        hint.classList.remove('hidden');
+      }
+      log('ERROR', `Browser audio: ${e.message}`);
+    }
+  }
+
+  function playPcmChunk(arrayBuffer) {
+    if (!browserAudioCtx) return;
+    try {
+      const int16 = new Int16Array(arrayBuffer);
+      if (int16.length === 0) return;
+
+      // int16 -> float32 [-1, 1]
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) {
+        float32[i] = int16[i] / 32768;
+      }
+
+      const buf = browserAudioCtx.createBuffer(1, float32.length, browserAudioRate);
+      buf.getChannelData(0).set(float32);
+
+      const src = browserAudioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(browserAudioCtx.destination);
+
+      // Scheduling: spoji blokove jedan za drugim bez preklapanja/rupa.
+      const now = browserAudioCtx.currentTime;
+      if (browserAudioNextTime < now) {
+        // Zaostali smo (buffer underrun) — resinkroniziraj s malim jastukom
+        browserAudioNextTime = now + 0.05;
+      }
+      src.start(browserAudioNextTime);
+      browserAudioNextTime += buf.duration;
+    } catch (_) {
+      // odbaci neispravan blok
+    }
+  }
+
+  function stopBrowserAudio() {
+    browserAudioActive = false;
+    const hint = document.getElementById('audioMonitorHint');
+    if (browserAudioWs) {
+      try { browserAudioWs.close(); } catch (_) {}
+      browserAudioWs = null;
+    }
+    if (browserAudioCtx) {
+      try { browserAudioCtx.close(); } catch (_) {}
+      browserAudioCtx = null;
+    }
+    browserAudioNextTime = 0;
+    if (hint) {
+      hint.textContent = HorusI18n.t('sidebar.browser_audio_info');
+      hint.className = 'text-xs text-slate-400 mt-1';
+      hint.classList.remove('hidden');
+    }
+    log('INFO', HorusI18n.t('app.browser_audio_stopped'));
+  }
+
   async function loadModems() {
     try {
       const r = await fetch('/api/modems');
@@ -1267,10 +1557,80 @@ const App = (() => {
     bauds.forEach(b => {
       const o = document.createElement('option');
       o.value = b;
-      o.textContent = b;
+      // Za LoRa modeme baud_rate je zapravo Spread Factor
+      o.textContent = cfg.is_lora ? `SF${b}` : b;
       if (b === cfg.default_baud_rate) o.selected = true;
       baudSel.appendChild(o);
     });
+
+    // Baud rate label mijenjamo ovisno o tipu modema
+    const baudLabel = baudSel.closest('div')?.querySelector('label');
+    if (baudLabel) {
+      baudLabel.textContent = cfg.is_lora ? 'Spread Factor' : (HorusI18n ? HorusI18n.t('sidebar.baud_rate') : 'Baud rate');
+    }
+
+    // LoRa info panel
+    const loraInfo = document.getElementById('loraInfo');
+    if (cfg.is_lora) {
+      // Auto-uključi RTL-SDR (LoRa treba IQ ulaz, ne audio)
+      const rtlCb = document.getElementById('rtlSdrEnabled');
+      if (rtlCb && !rtlCb.checked) {
+        rtlCb.checked = true;
+        toggleRtlSdr();
+      }
+      // Postavi LoRa frekvenciju u RTL-SDR polje
+      const rtlFreqInput = document.getElementById('rtlFrequency');
+      if (rtlFreqInput && cfg.lora_frequency_mhz) {
+        rtlFreqInput.value = cfg.lora_frequency_mhz;
+      }
+      // Pokaži LoRa info panel
+      if (loraInfo) {
+        loraInfo.classList.remove('hidden');
+        checkLoraAvailability();
+      }
+    } else {
+      // Sakrij LoRa info panel za non-LoRa modeme
+      if (loraInfo) {
+        loraInfo.classList.add('hidden');
+      }
+    }
+  }
+
+  async function checkLoraAvailability() {
+    try {
+      const r = await fetch('/api/lora/availability');
+      const data = await r.json();
+      const info = document.getElementById('loraInfo');
+      if (!info) return;
+
+      // Dohvati parametre iz odabranog modema
+      const sel = document.getElementById('modemSelect');
+      const opt = sel?.options[sel.selectedIndex];
+      const cfg = opt ? JSON.parse(opt.dataset.config) : {};
+      const freq = cfg.lora_frequency_mhz || '?';
+      const sf = document.getElementById('baudRate')?.value || cfg.default_baud_rate || '?';
+
+      if (data.is_linux === false) {
+        info.innerHTML =
+          '<span class="text-amber-400">⚠ ' + HorusI18n.t('app.lora_linux_only') + '</span>';
+        return;
+      }
+
+      if (data.available) {
+        let details = HorusI18n.t('app.lora_details', freq, sf);
+        details += '<br>' + HorusI18n.t('app.lora_tracker_examples');
+        info.innerHTML =
+          '<span class="text-emerald-400">✓ ' + HorusI18n.t('app.lora_tools_found') + '</span><br>' +
+          '<span class="text-xs text-slate-500">' + details + '</span>';
+      } else {
+        info.innerHTML =
+          '<span class="text-amber-400">⚠ ' + HorusI18n.t('app.lora_missing', (data.missing || []).join(', ')) + '</span><br>' +
+          '<span class="text-xs text-slate-500">' +
+          HorusI18n.t('app.lora_download_hint') + '</span>';
+      }
+    } catch (e) {
+      log('ERROR', `LoRa availability check: ${e.message}`);
+    }
   }
 
   function toggleRtlSdr() {
@@ -1343,7 +1703,7 @@ const App = (() => {
         modem: document.getElementById('modemSelect').value,
         baud_rate: parseInt(document.getElementById('baudRate').value, 10),
         use_udp: isUdp,
-        udp_port: 7355,
+        udp_port: parseInt(document.getElementById('udpPort')?.value, 10) || 7355,
         use_rtl_sdr: rtlEnabled,
       };
 
