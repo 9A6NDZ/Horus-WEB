@@ -32,7 +32,7 @@ logging.basicConfig(
 log = logging.getLogger("horus-web")
 
 # Trenutna verzija programa — ažuriraj ovdje pri svakom releasu
-CURRENT_VERSION = "1.7"
+CURRENT_VERSION = "1.8"
 
 # GitHub raw URL za provjeru nove verzije
 UPDATE_CHECK_URL = "https://raw.githubusercontent.com/9A6NDZ/Horus-WEB/main/version.json"
@@ -319,6 +319,10 @@ class MonitorRequest(BaseModel):
     sample_rate: int = 48000
 
 
+class VolumeRequest(BaseModel):
+    volume: float = 1.0
+
+
 @app.get("/api/status")
 async def api_status():
     return {
@@ -349,6 +353,30 @@ async def api_modems():
     if not bridge:
         raise HTTPException(503, "Bridge not ready")
     return bridge.list_modems()
+
+
+# -----------------------------------------------------------------------------
+# LoRa - dostupnost alata i tekstualne poruke
+# -----------------------------------------------------------------------------
+@app.get("/api/lora/availability")
+async def api_lora_availability():
+    """
+    Provjeri jesu li rtl_sdr i lorarx binarne datoteke dostupne.
+    Frontend pokazuje upozorenje kad korisnik odabere LoRa modem ako fale.
+    """
+    try:
+        from lora_decoder import LoraDecoder
+        return LoraDecoder.check_availability()
+    except Exception as e:
+        return {"available": False, "error": str(e), "missing": ["lora_decoder"]}
+
+
+@app.get("/api/lora/messages")
+async def api_lora_messages(limit: int = 100):
+    """Vrati zadnjih `limit` LoRa primljenih poruka (za log prozor u UI-u)."""
+    if not bridge:
+        raise HTTPException(503, "Bridge not ready")
+    return {"messages": bridge.get_lora_messages(limit=limit)}
 
 
 # -----------------------------------------------------------------------------
@@ -399,7 +427,24 @@ async def api_monitor_status():
     return {
         "enabled": bridge.monitor_enabled,
         "device_index": bridge.monitor_device_index,
+        "volume": getattr(bridge, "monitor_volume", 1.0),
     }
+
+
+@app.post("/api/monitor/volume")
+async def api_monitor_volume(req: VolumeRequest):
+    """
+    Postavi glasnoću audio monitora (AUDIO gain).
+
+    Neovisno o RF gainu (rtl_fm -g): ovaj volume regulira samo glasnoću
+    preslušavanja u monitoru/browseru, a ne dira ni prijem ni dekoder.
+    """
+    if not bridge:
+        raise HTTPException(503, "Bridge not ready")
+    bridge.set_monitor_volume(req.volume)
+    # Spremi u decoder config da preživi restart
+    _save_monitor_volume(req.volume)
+    return {"ok": True, "volume": bridge.monitor_volume}
 
 
 def _save_monitor_config(enabled: bool, device_index, sample_rate):
@@ -426,6 +471,16 @@ def _save_monitor_config(enabled: bool, device_index, sample_rate):
         _save_decoder_config(cfg)
     except Exception as e:
         log.warning(f"Could not save monitor config: {e}")
+
+
+def _save_monitor_volume(volume: float):
+    """Spremi monitor volume u decoder_config.json."""
+    try:
+        cfg = _load_decoder_config()
+        cfg["monitor_volume"] = float(volume)
+        _save_decoder_config(cfg)
+    except Exception as e:
+        log.warning(f"Could not save monitor volume: {e}")
 
 
 # -----------------------------------------------------------------------------
@@ -485,7 +540,7 @@ async def api_start(req: StartRequest):
             devices = bridge.list_audio_devices()
             for d in devices:
                 if req.use_udp and d.get("udp"):
-                    device_name = d.get("name", "")
+                    device_name = f"UDP Audio (127.0.0.1:{req.udp_port})"
                     break
                 if not req.use_udp and d.get("index") == req.audio_device:
                     device_name = d.get("name", "")
@@ -1774,6 +1829,62 @@ async def api_logging_delete(filename: str):
     except Exception as e:
         log.exception(f"Failed to delete log file {filename}: {e}")
         raise HTTPException(500, f"Greška pri brisanju: {str(e)}")
+
+
+@app.get("/api/audio-stream-info")
+async def api_audio_stream_info():
+    """Info za browser audio reprodukciju: sample rate, kanali, format."""
+    if not bridge:
+        raise HTTPException(503, "Bridge not ready")
+    return bridge.get_audio_stream_info()
+
+
+@app.websocket("/ws/audio")
+async def websocket_audio(ws: WebSocket):
+    """
+    Stream sirovog PCM audija (int16 mono) do browsera na UDALJENOM računalu.
+    Browser ga reproducira preko Web Audio API-ja, koristeći izlazni uređaj
+    tog (udaljenog) računala. Lokalni monitor (PyAudio na serveru) je neovisan.
+    """
+    await ws.accept()
+    if not bridge:
+        await ws.close(code=1011)
+        return
+
+    # Pošalji info o streamu kao prvi (tekstualni) frame
+    try:
+        await ws.send_json(bridge.get_audio_stream_info())
+    except Exception:
+        pass
+
+    q = bridge.add_audio_subscriber()
+    loop = asyncio.get_event_loop()
+    try:
+        while True:
+            # Blokirajuće čitanje iz queue-a u threadpoolu da ne blokira event loop
+            data = await loop.run_in_executor(None, _audio_queue_get, q)
+            if data is None:
+                # timeout — provjeri je li socket živ slanjem keepalive
+                try:
+                    await ws.send_bytes(b"")
+                except Exception:
+                    break
+                continue
+            await ws.send_bytes(data)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        log.info(f"Audio WS closed: {e}")
+    finally:
+        bridge.remove_audio_subscriber(q)
+
+
+def _audio_queue_get(q):
+    """Blokirajuće čitanje iz audio queue-a s timeoutom (za executor)."""
+    try:
+        return q.get(timeout=1.0)
+    except Exception:
+        return None
 
 
 @app.websocket("/ws")

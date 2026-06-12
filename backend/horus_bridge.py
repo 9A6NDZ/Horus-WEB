@@ -51,6 +51,15 @@ except ImportError as e:
     HORUS_AVAILABLE = False
     SondehubAmateurUploader = None
 
+# LoRa decoder — opcionalan, ne blokira rad ako nije dostupan
+try:
+    from lora_decoder import LoraDecoder
+    LORA_AVAILABLE = True
+except ImportError:
+    logging.info("LoRa decoder module not available (lora_decoder.py not found)")
+    LORA_AVAILABLE = False
+    LoraDecoder = None  # type: ignore[misc,assignment]
+
 
 log = logging.getLogger("horus-bridge")
 
@@ -85,6 +94,19 @@ MODEM_LIST = {
         "default_tone_spacing": 425,
         "use_mask_estimator": False,
     },
+    # LoRa APRS - prijem balona koji koriste LoRa modulaciju (433.775 MHz).
+    # Ne koristi horusdemodlib nego vanjski lorarx alat preko subprocesa.
+    "LoRa APRS 433": {
+        "id": "LORA_APRS",
+        "baud_rates": [7, 8, 9, 10, 11, 12],
+        "default_baud_rate": 12,
+        "default_tone_spacing": 0,
+        "use_mask_estimator": False,
+        "is_lora": True,
+        "lora_frequency_mhz": 433.775,
+        "lora_bandwidth_idx": 7,     # 125 kHz
+        "lora_spread_factor": 12,    # default, UI override via baud_rate
+    },
 }
 
 
@@ -105,6 +127,10 @@ class HorusBridge:
         self.udp_thread: Optional[Thread] = None
         self.rtl_process: Optional[subprocess.Popen] = None
         self.rtl_thread: Optional[Thread] = None
+
+        # LoRa mode
+        self.is_lora_mode = False
+        self.lora_decoder: Optional["LoraDecoder"] = None
 
         # FFT / spectrum tracking
         self.sample_rate = 48000
@@ -174,6 +200,23 @@ class HorusBridge:
         self._monitor_thread: Optional[Thread] = None
         self._monitor_running = False
 
+        # Mrežni audio subscriberi — za slušanje u browseru na UDALJENOM računalu.
+        # Svaki WebSocket klijent dobije svoj Queue u koji _feed_audio_subscribers
+        # gura iste PCM blokove (int16 mono). Neovisno o lokalnom monitoru.
+        self._audio_subscribers: "set[Queue]" = set()
+        self._audio_subscribers_lock = __import__("threading").Lock()
+        # Sample rate trenutnog audio streama — browser ga treba za reprodukciju.
+        self.monitor_sample_rate = 48000
+        # Audio monitor volume (glasnoća preslušavanja) — NEOVISAN o RF gainu.
+        # Množi samo PCM koji ide u monitor/browser, NIKAD uzorke koji idu u
+        # dekoder. 1.0 = bez promjene; <1.0 stišaj, >1.0 pojačaj (uz clip).
+        self.monitor_volume = 1.0
+        # FM-demoduliran IQ audio (RTL mod) izlazi znatno glasniji od UDP/audio
+        # ulaza. Ovaj fiksni faktor izjednačava glasnoću preslušavanja s UDP-om
+        # (RTL je ~30% glasniji). Primjenjuje se SAMO na RTL demod audio, povrh
+        # korisnikovog volume slidera, i NE dira uzorke koji idu u dekoder.
+        self._rtl_audio_attenuation = 0.1
+
         # Automatski re-upload stanice na SondeHub svakih 6 sati
         self._station_upload_interval = 6 * 3600  # 6 sati u sekundama
         self._last_station_upload_time = 0.0       # unix timestamp zadnjeg uploada
@@ -219,6 +262,12 @@ class HorusBridge:
     def is_running(self) -> bool:
         return self.running
 
+    def get_lora_messages(self, limit: int = 100) -> list:
+        """Dohvati zadnje LoRa poruke za log prozor. Prazno ako LoRa nije aktivna."""
+        if self.lora_decoder and hasattr(self.lora_decoder, "get_message_log"):
+            return self.lora_decoder.get_message_log(limit=limit)
+        return []
+
     def list_audio_devices(self) -> list[dict]:
         if not HORUS_AVAILABLE:
             return [{"index": -1, "name": "Simulation mode", "sample_rates": [48000]}]
@@ -239,7 +288,7 @@ class HorusBridge:
         # Dodaj UDP opciju (GQRX)
         devices.append({
             "index": -1,
-            "name": "UDP Audio (GQRX 127.0.0.1:7355)",
+            "name": "UDP Audio (127.0.0.1)",
             "default_sample_rate": 48000,
             "udp": True,
         })
@@ -363,6 +412,85 @@ class HorusBridge:
         self.monitor_device_index = None
         log.info("Audio monitor stopped.")
 
+    # ------------------------------------------------------------------
+    # Mrežni audio (slušanje u browseru na udaljenom računalu)
+    # ------------------------------------------------------------------
+    def add_audio_subscriber(self) -> Queue:
+        """
+        Registriraj novog mrežnog slušatelja (WebSocket klijent u browseru).
+        Vraća Queue iz kojeg WebSocket handler čita PCM blokove (int16 mono).
+        Audio se gura neovisno o lokalnom monitoru.
+        """
+        q: Queue = Queue(maxsize=100)
+        with self._audio_subscribers_lock:
+            self._audio_subscribers.add(q)
+        log.info(f"Network audio subscriber added. Total: {len(self._audio_subscribers)}")
+        return q
+
+    def remove_audio_subscriber(self, q: Queue):
+        """Odjavi mrežnog slušatelja kad se WebSocket zatvori."""
+        with self._audio_subscribers_lock:
+            self._audio_subscribers.discard(q)
+        log.info(f"Network audio subscriber removed. Total: {len(self._audio_subscribers)}")
+
+    def _feed_audio_subscribers(self, data: bytes):
+        """
+        Gurni PCM blok u queue svakog mrežnog slušatelja.
+        Ako je queue pun (klijent ne stiže čitati), preskoči blok za tog
+        klijenta — nikad ne blokira dekoder.
+        """
+        # Kopija seta pod lockom da izbjegnemo mijenjanje tijekom iteracije
+        with self._audio_subscribers_lock:
+            subs = list(self._audio_subscribers)
+        for q in subs:
+            try:
+                q.put_nowait(data)
+            except Exception:
+                pass  # queue pun — preskoči (drop) za tog klijenta
+
+    def set_monitor_volume(self, volume: float):
+        """
+        Postavi glasnoću audio monitora (preslušavanja).
+
+        Ovo je AUDIO gain — potpuno neovisan o RF gainu (rtl_fm -g). RF gain
+        regulira pojačanje prijemnika (i smije se vidjeti u spektru), dok ovaj
+        volume regulira samo koliko glasno čuješ u monitoru/browseru.
+
+        Raspon: 0.0 (mute) do 1.0 (100%, puna glasnoća demoduliranog signala).
+        """
+        try:
+            v = float(volume)
+        except (TypeError, ValueError):
+            return
+        # Ograniči na razuman raspon
+        self.monitor_volume = max(0.0, min(v, 1.0))
+        log.info(f"Audio monitor volume set to {self.monitor_volume:.2f}")
+
+    def _apply_volume(self, pcm: bytes) -> bytes:
+        """
+        Primijeni monitor_volume na PCM blok (int16 mono) za preslušavanje.
+        Vraća skaliranu kopiju; NE dira originalni `pcm` koji ide u dekoder.
+        Kad je volume 1.0, vraća original bez kopiranja (brzi put).
+        """
+        if self.monitor_volume == 1.0:
+            return pcm
+        try:
+            arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+            arr *= self.monitor_volume
+            np.clip(arr, -32768, 32767, out=arr)
+            return arr.astype(np.int16).tobytes()
+        except Exception:
+            return pcm  # u slučaju greške vrati original (bolje nego tišina)
+
+    def get_audio_stream_info(self) -> dict:
+        """Info za browser: sample rate i broj kanala trenutnog audio streama."""
+        return {
+            "sample_rate": self.monitor_sample_rate,
+            "channels": 1,
+            "format": "s16le",
+            "running": self.running,
+        }
+
     def start(
         self,
         audio_device: Optional[int],
@@ -392,11 +520,76 @@ class HorusBridge:
         if not modem_cfg:
             raise ValueError(f"Unknown modem: {modem}")
 
+        # ---------------------------------------------------------------
+        # LoRa modem -- ne koristi horusdemodlib nego vanjski lorarx alat
+        # ---------------------------------------------------------------
+        if modem_cfg.get("is_lora"):
+            if not LORA_AVAILABLE or LoraDecoder is None:
+                raise RuntimeError("LoRa decoder modul nije dostupan (provjeri lora_decoder.py)")
+
+            self.is_lora_mode = True
+
+            # Postavi FFT parametre za LoRa (1 MHz bandwidth, veći NFFT)
+            self.rtl_mode = True
+            self.sample_rate = 1_000_000
+            self.nfft = 16384
+            self.fft_stride = 16384
+            # FM-demoduliran audio u RTL modu izlazi na IQ rate-u; browseru
+            # ga šaljemo na tom rate-u (AudioContext će resamplati).
+            self.monitor_sample_rate = 1_000_000
+
+            freq_mhz = (
+                rtl_frequency if (use_rtl_sdr and rtl_frequency)
+                else modem_cfg.get("lora_frequency_mhz", 433.775)
+            )
+
+            freq_hz = int(freq_mhz * 1e6)
+            self.rtl_center_freq_hz = freq_hz
+            self.rtl_target_freq_hz = freq_hz
+            self.rtl_offset_hz = 0
+            self._init_fft()
+
+            # FFT callback za spektar — konvertira u8 IQ u int16 za _process_fft_samples
+            def _lora_fft_callback(raw_u8: bytes):
+                try:
+                    arr = np.frombuffer(raw_u8, dtype=np.uint8).astype(np.int16)
+                    arr = (arr - 128) * 256  # u8 -> i16 centered
+                    self._process_fft_samples(arr.tobytes())
+                except Exception:
+                    pass
+
+            self.lora_decoder = LoraDecoder(
+                packet_callback=self._on_lora_position,
+                status_callback=self.status_callback,
+                message_callback=self._on_lora_message,
+                fft_callback=_lora_fft_callback,
+            )
+
+            # Koristi baud_rate iz UI kao spread_factor override
+            sf = baud_rate if baud_rate in range(5, 13) else modem_cfg.get("lora_spread_factor", 12)
+
+            self.lora_decoder.start(
+                frequency_mhz=freq_mhz,
+                rtl_device=rtl_device,
+                rtl_gain=rtl_gain,
+                rtl_ppm=rtl_ppm,
+                bandwidth_idx=modem_cfg.get("lora_bandwidth_idx", 7),
+                spread_factor=sf,
+            )
+            self.running = True
+            log.info(f"LoRa decoder started: {modem} @ {freq_mhz} MHz (FFT enabled, 1 MHz BW)")
+            return
+
+        # ---------------------------------------------------------------
+        # Horus / RTTY -- postojeća logika
+        # ---------------------------------------------------------------
         mode_id = getattr(Mode, modem_cfg["id"])
         tone_spacing = modem_cfg["default_tone_spacing"]
 
         # Pamti sample rate i inicijaliziraj FFT state
         self.sample_rate = sample_rate
+        # Audio koji ide browseru je na ulaznom sample rate-u (mono int16)
+        self.monitor_sample_rate = sample_rate
         self._init_fft()
 
         # Setup modem
@@ -440,6 +633,34 @@ class HorusBridge:
         if not self.running:
             return
 
+        # LoRa mode - zaustavi lorarx i exit (ostala čišćenja nisu relevantna)
+        if self.is_lora_mode:
+            try:
+                if self.lora_decoder:
+                    self.lora_decoder.stop()
+                    self.lora_decoder = None
+            except Exception as e:
+                log.exception(f"Error stopping LoRa: {e}")
+            self.is_lora_mode = False
+            self.running = False
+            # Reset FFT state
+            self.rtl_mode = False
+            self.rtl_center_freq_hz = 0
+            self.rtl_target_freq_hz = 0
+            self.rtl_offset_hz = 0
+            self.sample_buffer = bytearray(b"")
+            self.peak_hold = None
+            self.fft_window = None
+            self.fft_scale = None
+            self.fft_mask = None
+            self.nfft = 8192
+            self.fft_stride = 8192
+            for attr in ('_fft_logged', '_fft_warning_logged'):
+                if hasattr(self, attr):
+                    delattr(self, attr)
+            log.info("Stopped (LoRa mode).")
+            return
+
         try:
             if self.stream:
                 self.stream.stop_stream()
@@ -474,6 +695,33 @@ class HorusBridge:
             if hasattr(self, attr):
                 delattr(self, attr)
         log.info("Stopped.")
+
+    # ------------------------------------------------------------------
+    # LoRa Packet Handlers
+    # ------------------------------------------------------------------
+    def _on_lora_position(self, decoded: dict):
+        """
+        Pozvano iz LoraDecoder-a za APRS position pakete.
+        Tretira se kao Horus balon paket - prolazi kroz isti tok
+        (flight_analyzer, sondehub, websocket).
+        """
+        try:
+            self.packet_callback(decoded)
+        except Exception as e:
+            log.exception(f"Error in LoRa position callback: {e}")
+
+    def _on_lora_message(self, msg: dict):
+        """
+        Pozvano iz LoraDecoder-a za sve pakete (position, status, message, raw).
+        Emitira WebSocket status poruku za real-time log prikaz.
+        """
+        try:
+            self.status_callback({
+                "type": "lora_message",
+                **msg,
+            })
+        except Exception as e:
+            log.exception(f"Error in LoRa message callback: {e}")
 
     # ------------------------------------------------------------------
     # Internals
@@ -616,11 +864,19 @@ class HorusBridge:
         self._process_fft_samples(data)
 
         # Audio monitor — stavi sample u queue (writer thread ih piše na output)
-        if self.monitor_enabled:
-            try:
-                self._monitor_queue.put_nowait(data)
-            except Exception:
-                pass  # queue pun, preskoči blok (bolje nego blokirati dekoder)
+        # Volume se primjenjuje samo na kopiju za preslušavanje; `data` koji je
+        # već otišao u modem (gore) ostaje netaknut.
+        if self.monitor_enabled or self._audio_subscribers:
+            play_data = self._apply_volume(data)
+            if self.monitor_enabled:
+                try:
+                    self._monitor_queue.put_nowait(play_data)
+                except Exception:
+                    pass  # queue pun, preskoči blok (bolje nego blokirati dekoder)
+            # Mrežni audio subscriberi (browser na udaljenom računalu) — neovisno
+            # o lokalnom monitoru. Gura iste PCM blokove u queue svakog klijenta.
+            if self._audio_subscribers:
+                self._feed_audio_subscribers(play_data)
 
         return (None, pyaudio.paContinue)
 
@@ -663,12 +919,18 @@ class HorusBridge:
                         except Exception as e:
                             log.exception(f"UDP modem error: {e}")
                     self._process_fft_samples(data)
-                    # Audio monitor — stavi UDP audio u queue
-                    if self.monitor_enabled:
-                        try:
-                            self._monitor_queue.put_nowait(data)
-                        except Exception:
-                            pass
+                    # Audio monitor — stavi UDP audio u queue (skalirana kopija;
+                    # uzorci u modem su već poslani gore i ostaju netaknuti)
+                    if self.monitor_enabled or self._audio_subscribers:
+                        play_data = self._apply_volume(data)
+                        if self.monitor_enabled:
+                            try:
+                                self._monitor_queue.put_nowait(play_data)
+                            except Exception:
+                                pass
+                        # Mrežni subscriberi (browser na udaljenom računalu)
+                        if self._audio_subscribers:
+                            self._feed_audio_subscribers(play_data)
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -848,8 +1110,9 @@ class HorusBridge:
                     self._process_fft_samples(data)
 
                     # 3) AUDIO MONITOR — FM demodulacija IQ → mono audio
-                    #    Samo za preslušavanje (zvučnik), ne za FFT prikaz.
-                    if self.monitor_enabled:
+                    #    Za preslušavanje (lokalni zvučnik) i/ili mrežne
+                    #    subscribere (browser na udaljenom računalu).
+                    if self.monitor_enabled or self._audio_subscribers:
                         try:
                             iq = np.frombuffer(data, dtype=np.int16)
                             if len(iq) >= 4:
@@ -864,14 +1127,26 @@ class HorusBridge:
                                 dphase = np.where(dphase > np.pi, dphase - 2*np.pi, dphase)
                                 dphase = np.where(dphase < -np.pi, dphase + 2*np.pi, dphase)
 
-                                # Skaliraj na int16 raspon
-                                audio = (dphase * (32767.0 / np.pi)).clip(-32767, 32767).astype(np.int16)
+                                # Skaliraj na int16 raspon. RTL FM-demod audio je
+                                # ~30% glasniji od UDP-a, pa primijeni atenuaciju
+                                # da glasnoća preslušavanja bude usklađena.
+                                audio = (
+                                    dphase * (32767.0 / np.pi) * self._rtl_audio_attenuation
+                                ).clip(-32767, 32767).astype(np.int16)
                                 audio_data = audio.tobytes()
 
-                                try:
-                                    self._monitor_queue.put_nowait(audio_data)
-                                except Exception:
-                                    pass
+                                # AUDIO gain (monitor volume) — neovisno o RF gainu.
+                                # Primijeni samo na kopiju za preslušavanje; uzorci
+                                # koji su otišli u modem (gore) ostaju netaknuti.
+                                play_data = self._apply_volume(audio_data)
+
+                                if self.monitor_enabled:
+                                    try:
+                                        self._monitor_queue.put_nowait(play_data)
+                                    except Exception:
+                                        pass
+                                if self._audio_subscribers:
+                                    self._feed_audio_subscribers(play_data)
                         except Exception:
                             pass
 
@@ -1037,7 +1312,7 @@ class HorusBridge:
                 user_radio=radio or "",
                 user_antenna=antenna,
                 software_name="Horus-Web",
-                software_version="1.7",
+                software_version="1.8",
             )
             self.sondehub_uploader.inhibit = not enabled
             log.info(f"SondeHub uploader created: callsign={callsign} enabled={enabled}")
@@ -1115,7 +1390,7 @@ class HorusBridge:
                 user_radio=radio or "",
                 user_antenna=antenna,
                 software_name="Horus-Web",
-                software_version="1.7",
+                software_version="1.8",
             )
             self.sondehub_uploader.inhibit = not cfg.get("enabled", False)
 

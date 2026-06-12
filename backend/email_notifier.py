@@ -28,6 +28,8 @@ class EmailNotifier:
         self.config: dict = {}
         # callsign -> timestamp zadnje poslane notifikacije
         self._last_notified: dict[str, float] = {}
+        # callsign -> timestamp zadnjeg primljenog paketa (za detekciju gap-a)
+        self._last_packet_time: dict[str, float] = {}
         self._lock = threading.Lock()
         self.load_config()
 
@@ -183,7 +185,16 @@ class EmailNotifier:
         return float(self.config.get("cooldown_hours", 6)) * 3600
 
     def should_notify(self, callsign: str) -> bool:
-        """Provjeri treba li poslati notifikaciju za ovaj callsign."""
+        """Provjeri treba li poslati notifikaciju za ovaj callsign.
+
+        Notifikacija se šalje SAMO ako:
+        1. Callsign se pojavljuje prvi put (nikad viđen), ILI
+        2. Prošao je gap duži od cooldown-a od zadnjeg primljenog paketa
+           (što znači da je balon nestao i ponovno se pojavio).
+
+        Ako balon kontinuirano šalje pakete, NEĆE se ponovo notificirati
+        nakon cooldown perioda.
+        """
         if not self.enabled:
             return False
 
@@ -195,10 +206,26 @@ class EmailNotifier:
 
         now = time.time()
         with self._lock:
-            last = self._last_notified.get(callsign, 0)
-            if now - last < self.cooldown_seconds:
-                return False
-            return True
+            last_packet = self._last_packet_time.get(callsign, 0)
+
+            if last_packet == 0:
+                # Nikad viđen callsign — nova sonda, notificiraj
+                return True
+
+            gap = now - last_packet
+            if gap >= self.cooldown_seconds:
+                # Prošlo je više od cooldown-a od zadnjeg paketa —
+                # balon je nestao i ponovno se pojavio, notificiraj
+                return True
+
+            # Balon kontinuirano šalje pakete, NE notificiraj
+            return False
+
+    def update_last_packet_time(self, callsign: str):
+        """Ažuriraj vrijeme zadnjeg primljenog paketa za callsign.
+        Poziva se za SVAKI primljeni paket."""
+        with self._lock:
+            self._last_packet_time[callsign] = time.time()
 
     def mark_notified(self, callsign: str):
         """Označi da je notifikacija poslana za callsign."""
@@ -207,10 +234,18 @@ class EmailNotifier:
 
     def notify_new_sonde(self, callsign: str, packet: dict):
         """
-        Ako je to nova sonda (ili je prošao cooldown), pošalji email.
-        Poziva se iz on_packet — šalje u background threadu da ne blokira.
+        Ako je to nova sonda (ili se pojavila nakon gap-a dužeg od cooldown-a),
+        pošalji email. Poziva se iz on_packet — šalje u background threadu.
+
+        VAŽNO: should_notify() se provjerava PRIJE update_last_packet_time()
+        da bi gap detekcija radila ispravno.
         """
-        if not self.should_notify(callsign):
+        should = self.should_notify(callsign)
+
+        # UVIJEK ažuriraj last_packet_time — neovisno o tome šaljemo li email
+        self.update_last_packet_time(callsign)
+
+        if not should:
             return
 
         # Označi odmah (ne čekaj slanje) da se izbjegne duplo slanje
@@ -371,9 +406,10 @@ class EmailNotifier:
 
         except Exception as e:
             log.error(f"✉ Greška slanja emaila za {callsign}: {e}")
-            # Ponisti mark_notified da se može pokušati ponovo na sljedećem paketu
+            # Ponisti mark da se može pokušati ponovo na sljedećem paketu
             with self._lock:
                 self._last_notified.pop(callsign, None)
+                self._last_packet_time.pop(callsign, None)
 
     def send_test_email(self) -> dict:
         """Pošalji testni email — sinhrono, vraća rezultat."""
