@@ -37,6 +37,7 @@
 
   <style>
     .horus-modal-overlay { z-index: 10000 !important; }
+    #aboutModal.horus-modal-overlay { z-index: 10002 !important; }
     header.sticky { z-index: 1000; }
 
     /* Chart panel collapse/expand */
@@ -80,6 +81,15 @@
     .collapsible-panel.collapsed .collapsible-toggle-icon {
       transform: rotate(180deg);
     }
+    /* ===== Panel reorder (drag handle) ===== */
+    .panel-dragging {
+      opacity: 0.55;
+      outline: 2px dashed #3b82f6;
+      outline-offset: -2px;
+    }
+    .panel-drag-handle { line-height: 0; }
+    .touch-none { touch-action: none; }
+
     /* Flight analysis panel needs larger max-height for many charts */
     .collapsible-panel-body[data-panel-id="flight-analysis"] {
       max-height: 5000px;
@@ -177,7 +187,7 @@
         </div>
         <div>
           <h1 class="text-lg font-semibold leading-none">Horus Web</h1>
-          <p class="text-xs text-slate-400">Balloon Telemetry Decoder v1.8</p>
+          <p class="text-xs text-slate-400">Balloon Telemetry Decoder v1.9</p>
         </div>
       </div>
 
@@ -483,17 +493,21 @@
     <section class="col-span-12 lg:col-span-9 space-y-4">
 
       <div class="bg-gradient-to-br from-slate-900 to-slate-900/70 rounded-xl border border-brand-700/50 p-4 shadow-lg collapsible-panel" data-panel-id="telemetry">
-        <div class="flex items-center justify-between mb-3 cursor-pointer collapsible-panel-header" data-panel-id="telemetry">
-          <h2 class="font-semibold flex items-center gap-2">
-            <i data-lucide="database" class="w-5 h-5 text-brand-500"></i>
+        <div class="flex items-center justify-between gap-2 mb-3 cursor-pointer collapsible-panel-header" data-panel-id="telemetry">
+          <h2 class="font-semibold flex items-center flex-wrap gap-2 min-w-0">
+            <i data-lucide="database" class="w-5 h-5 text-brand-500 shrink-0"></i>
             <span data-i18n="telemetry.last_packet">Zadnji paket</span>
-            <span id="tCallsignBadge" class="ml-2 px-2 py-0.5 rounded-md bg-brand-900/50 text-brand-300 text-xs font-mono">—</span>
-            <button class="ml-2 p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn" data-panel-id="telemetry" title="Minimiziraj/proširi">
+            <span id="tCallsignBadge" class="px-2 py-0.5 rounded-md bg-brand-900/50 text-brand-300 text-xs font-mono">—</span>
+            <a id="tSondehubLink" href="#" target="_blank" rel="noopener noreferrer" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-900/40 text-emerald-300 hover:bg-emerald-800/60 hover:text-emerald-200 transition text-xs font-medium" title="SondeHub Amateur" data-i18n-title="telemetry.sondehub_link" onclick="event.stopPropagation()">
+              <i data-lucide="external-link" class="w-3 h-3"></i>
+              <span>SondeHub</span>
+            </a>
+          </h2>
+          <div class="flex items-center gap-2 shrink-0">
+            <span id="tTimeHeader" class="text-xs text-slate-500 font-mono hidden sm:inline">—</span>
+            <button class="p-1 rounded hover:bg-slate-700 transition text-slate-400 hover:text-slate-200 collapsible-toggle-btn shrink-0" data-panel-id="telemetry" title="Minimiziraj/proširi">
               <i data-lucide="chevron-up" class="w-4 h-4 collapsible-toggle-icon"></i>
             </button>
-          </h2>
-          <div class="text-xs text-slate-500">
-            <span id="tTimeHeader" class="font-mono">—</span>
           </div>
         </div>
         <div class="collapsible-panel-body" data-panel-id="telemetry">
@@ -978,6 +992,11 @@
           <i data-lucide="play-circle" class="w-4 h-4 inline-block mr-1"></i>
           <span data-i18n="history.tab_replay">Repriza leta</span>
         </button>
+        <button class="history-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition"
+                data-tab="polar">
+          <i data-lucide="compass" class="w-4 h-4 inline-block mr-1"></i>
+          <span data-i18n="history.tab_polar">Polarni dijagram</span>
+        </button>
       </div>
 
       <!-- Tab content -->
@@ -1288,6 +1307,80 @@
                   <span class="text-xs text-slate-500 font-mono w-16" id="historyReplayTimeStart">00:00</span>
                   <input id="historyReplaySlider" type="range" min="0" max="100" value="0" step="1" class="flex-1 accent-brand-500" />
                   <span class="text-xs text-slate-500 font-mono w-16 text-right" id="historyReplayTimeEnd">00:00</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- === TAB 5: POLAR PLOT === -->
+        <div id="historyTabPolar" class="history-tab-content hidden h-full overflow-y-auto p-5">
+          <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <div>
+              <h3 class="text-base font-semibold flex items-center gap-2">
+                <i data-lucide="compass" class="w-5 h-5 text-brand-500"></i>
+                <span data-i18n="polar.title">Otvorenost prijemnika po stranama svijeta</span>
+              </h3>
+              <p class="text-xs text-slate-500 mt-1" data-i18n="polar.subtitle">
+                Maksimalni domet prijema (km) iz svih spremljenih logova, relativno na lokaciju stanice.
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500" data-i18n="polar.sectors_label">Smjerova:</span>
+              <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
+                <button class="polar-sectors-btn px-2.5 py-1 rounded text-xs font-mono bg-brand-600 text-white" data-sectors="8">8</button>
+                <button class="polar-sectors-btn px-2.5 py-1 rounded text-xs font-mono hover:bg-slate-700 transition" data-sectors="16">16</button>
+              </div>
+              <button id="polarRefreshBtn" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 transition" title="Osvježi" data-i18n-title="polar.refresh">
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Empty / loading / error state -->
+          <div id="polarEmpty" class="flex items-center justify-center py-16">
+            <div class="text-center text-slate-500">
+              <i data-lucide="compass" class="w-16 h-16 mx-auto mb-4 opacity-30"></i>
+              <p class="text-lg mb-2" id="polarEmptyTitle" data-i18n="polar.empty">Nema podataka za prikaz</p>
+              <p class="text-sm" id="polarEmptyHint" data-i18n="polar.empty_hint">Provjerite je li lokacija stanice postavljena i postoje li spremljeni logovi.</p>
+            </div>
+          </div>
+
+          <!-- Content -->
+          <div id="polarContent" class="hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <!-- Chart -->
+              <div class="lg:col-span-2 bg-slate-950 border border-slate-800 rounded-lg p-4">
+                <div class="relative" style="height: 460px;">
+                  <canvas id="polarChart"></canvas>
+                </div>
+              </div>
+              <!-- Stats -->
+              <div class="space-y-3">
+                <div class="bg-slate-950 border border-slate-800 rounded-lg p-4">
+                  <div class="text-xs text-slate-500" data-i18n="polar.best_dir">Najbolji smjer</div>
+                  <div class="text-2xl font-bold font-mono text-brand-400" id="polarBestDir">—</div>
+                  <div class="text-xs text-slate-400 mt-1">
+                    <span id="polarOverallMax">—</span> km <span data-i18n="polar.max_range">maks. domet</span>
+                  </div>
+                </div>
+                <div class="bg-slate-950 border border-slate-800 rounded-lg p-4">
+                  <div class="text-xs text-slate-500 mb-2" data-i18n="polar.per_direction">Po smjerovima (maks. km)</div>
+                  <div id="polarDirTable" class="space-y-1 text-sm font-mono"></div>
+                </div>
+                <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-500">
+                  <div class="flex justify-between">
+                    <span data-i18n="polar.points">Točaka:</span>
+                    <span id="polarTotalPoints" class="text-slate-300">0</span>
+                  </div>
+                  <div class="flex justify-between mt-1">
+                    <span data-i18n="polar.files">Logova:</span>
+                    <span id="polarFilesScanned" class="text-slate-300">0</span>
+                  </div>
+                  <div class="flex justify-between mt-1">
+                    <span data-i18n="polar.station">Stanica:</span>
+                    <span id="polarStation" class="text-slate-300">—</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1770,7 +1863,7 @@
               <i data-lucide="tag" class="w-4 h-4"></i>
               <span data-i18n="about.version">Verzija</span>
             </span>
-            <span class="font-mono text-white">1.8</span>
+            <span class="font-mono text-white">1.9</span>
           </div>
 
           <div class="flex items-center justify-between py-2 border-b border-slate-800/60">
@@ -1876,6 +1969,7 @@
   <script src="/static/js/charts.js"></script>
   <script src="/static/js/spectrum.js"></script>
   <script src="/static/js/history.js"></script>
+  <script src="/static/js/panel-reorder.js"></script>
   <script src="/static/js/app.js"></script>
   <script>lucide.createIcons();</script>
 </body>
