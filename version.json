@@ -1,6 +1,6 @@
 {
-  "version": "1.8",
-  "release_notes": "Add Lora 433 and 3D View map",
+  "version": "1.9",
+  "release_notes": "Add Polar plot in hisory - Add custom layout design - fix some bug ",
   "release_url": "https://github.com/9A6NDZ/Horus-WEB/releases/latest",
   "min_version": "1.0"
 }

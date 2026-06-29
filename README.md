@@ -6,7 +6,7 @@ Modern web-based frontend for decoding and tracking high-altitude balloon (HAB) 
 
 Built as a full replacement for the original Horus GUI (Qt-based), Horus Web runs entirely in your browser and provides real-time telemetry decoding, mapping, charting, and flight analysis — all from a single `.exe` or Python script.
 
-**Version:** 1.8  
+**Version:** 1.9  
 **Author:** 9A6NDZ Zoran  
 **License:** GPL-3.0
 
@@ -36,6 +36,7 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 - OpenWeatherMap overlay (clouds, precipitation, pressure, wind, temperature)
 - METAR data from nearby airports (via NOAA AWC)
 - Day/night shadow overlay — real-time solar terminator visualization on the map
+- **Directional coverage (polar plot)** — radar chart showing your station's maximum reception range per compass sector (8 or 16 bins), computed from bearing/range to every logged balloon position — an at-a-glance view of where your antenna performs well
 - **3D flight view** — open the selected flight in a separate window with a full 3D globe (CesiumJS, free open-source terrain), showing the balloon track, altitude profile, and terrain in three dimensions
 
 ### Flight Analysis
@@ -72,6 +73,7 @@ Built as a full replacement for the original Horus GUI (Qt-based), Horus Web run
 - Dark and light theme
 - Multi-language support: Croatian (HR), English (EN), Polish (PL)
 - Responsive layout for desktop and mobile
+- **Drag-and-drop panel reordering** — rearrange sidebar panels via grip handles (mouse and touch); custom layout persisted in the browser (localStorage)
 - Real-time WebSocket connection with auto-reconnect
 - Email notifications when a new sonde is detected
 - Configurable startup programs (auto-launch SDR++ or other software)
@@ -139,6 +141,7 @@ horus-web/
 │       ├── spectrum.js      # Audio FFT spectrum + waterfall display
 │       ├── history.js       # Flight history modal (table, analysis, comparison, replay)
 │       ├── analytics.js     # UI analytics and statistics
+│       ├── panel-reorder.js # Drag-and-drop sidebar panel reordering
 │       └── i18n.js          # Internationalization (HR/EN/PL)
 │
 └── README.md
@@ -173,6 +176,8 @@ Horus Web exposes a REST API on the same port as the web interface. All endpoint
 **Station:** `/api/station` (GET/POST), `/api/station/upload`
 
 **Flight data:** `/api/flight`, `/api/flights`, `/api/callsigns`, `/api/flight/stats`, `/api/flight/reset`
+
+**Coverage:** `/api/coverage/polar` — bearing/range from station to all logged positions, binned into compass sectors (8 or 16) with max range per sector, for the directional coverage radar chart
 
 **Logging:** `/api/logging/config`, `/api/logging/files`, `/api/logging/download/{filename}`, `/api/logging/load/{filename}`, `/api/logging/file/{filename}` (DELETE)
 
