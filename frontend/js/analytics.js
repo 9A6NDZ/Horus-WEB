@@ -83,6 +83,15 @@ const HorusAnalytics = (() => {
     if (typeof val === 'number') {
       return Number.isInteger(val) ? `${val}${unit ? ' ' + unit : ''}` : `${val.toFixed(2)}${unit ? ' ' + unit : ''}`;
     }
+    if (typeof val === 'object') {
+      // Horus v3 extra_sensors i sl.: prazni objekt/array → prazno, inače serijaliziraj
+      if (Array.isArray(val)) {
+        return val.length === 0 ? '—' : val.join(', ');
+      }
+      const entries = Object.entries(val).filter(([, v]) => v !== null && v !== undefined);
+      if (entries.length === 0) return '—';
+      return entries.map(([k, v]) => `${k}: ${v}`).join(', ');
+    }
     return `${val}${unit ? ' ' + unit : ''}`;
   }
 
@@ -218,6 +227,18 @@ const HorusAnalytics = (() => {
     const timeHeader = document.getElementById('tTimeHeader');
     if (timeHeader) timeHeader.textContent = p.time || '—';
 
+    // SondeHub Amateur direktan link na ovu sondu
+    const shLink = document.getElementById('tSondehubLink');
+    if (shLink) {
+      if (p.callsign) {
+        const cs = encodeURIComponent(p.callsign);
+        shLink.href = `https://amateur.sondehub.org/${cs}`;
+        shLink.classList.remove('hidden');
+      } else {
+        shLink.classList.add('hidden');
+      }
+    }
+
     // Dinamički custom fields
     updateCustomFieldsGrid(p.custom_fields || {});
   }
@@ -225,6 +246,19 @@ const HorusAnalytics = (() => {
   function updateCustomFieldsGrid(customFields) {
     const container = document.getElementById('customFieldsGrid');
     if (!container) return;
+
+    // Izbaci prazna polja (npr. Horus v3 extra_sensors = {} kad nema senzora)
+    const isEmptyValue = (v) =>
+      v === null || v === undefined ||
+      (Array.isArray(v) && v.length === 0) ||
+      (typeof v === 'object' && !Array.isArray(v) &&
+        Object.values(v).every(x => x === null || x === undefined));
+
+    const filtered = {};
+    Object.keys(customFields).forEach(k => {
+      if (!isEmptyValue(customFields[k])) filtered[k] = customFields[k];
+    });
+    customFields = filtered;
 
     const keys = Object.keys(customFields);
     if (keys.length === 0) {

@@ -550,6 +550,9 @@ const HorusHistory = (() => {
     if (tabName === 'compare') {
       renderCompare();
     }
+    if (tabName === 'polar') {
+      renderPolar();
+    }
   }
 
   // -------------------- ANALYZE --------------------
@@ -1103,6 +1106,148 @@ const HorusHistory = (() => {
     pauseReplay();
   }
 
+  // -------------------- POLAR PLOT (otvorenost prijemnika) --------------------
+  let polarChart = null;
+  let polarSectors = 8;
+  let polarLoaded = false;
+
+  function _dirColor(km, maxKm) {
+    // gradijent prema dometu nije nužan — vraćamo brand boju
+    return '#eab308';
+  }
+
+  async function fetchPolar(sectors) {
+    try {
+      const r = await fetch('/api/analytics/polar?sectors=' + sectors);
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) {
+      console.error('Polar: fetch failed', e);
+      return null;
+    }
+  }
+
+  function showPolarEmpty(titleKey, hintKey) {
+    const empty = document.getElementById('polarEmpty');
+    const content = document.getElementById('polarContent');
+    const tEl = document.getElementById('polarEmptyTitle');
+    const hEl = document.getElementById('polarEmptyHint');
+    if (tEl) { tEl.setAttribute('data-i18n', titleKey); tEl.textContent = t(titleKey); }
+    if (hEl) { hEl.setAttribute('data-i18n', hintKey); hEl.textContent = t(hintKey); }
+    if (empty) empty.classList.remove('hidden');
+    if (content) content.classList.add('hidden');
+  }
+
+  async function renderPolar() {
+    const data = await fetchPolar(polarSectors);
+
+    if (!data || !data.ok) {
+      if (data && data.error === 'no_station') {
+        showPolarEmpty('polar.no_station', 'polar.no_station_hint');
+      } else {
+        showPolarEmpty('polar.empty', 'polar.empty_hint');
+      }
+      return;
+    }
+
+    if (!data.total_points) {
+      showPolarEmpty('polar.empty', 'polar.empty_hint');
+      return;
+    }
+
+    document.getElementById('polarEmpty').classList.add('hidden');
+    document.getElementById('polarContent').classList.remove('hidden');
+
+    // KPI / stats
+    document.getElementById('polarBestDir').textContent = data.best_direction || '—';
+    document.getElementById('polarOverallMax').textContent = (data.overall_max_km ?? 0).toFixed(1);
+    document.getElementById('polarTotalPoints').textContent = data.total_points.toLocaleString();
+    document.getElementById('polarFilesScanned').textContent = data.files_scanned;
+    document.getElementById('polarStation').textContent =
+      (data.station && data.station.callsign) ? data.station.callsign :
+      (data.station ? data.station.latitude.toFixed(3) + ', ' + data.station.longitude.toFixed(3) : '—');
+
+    // Tablica po smjerovima
+    const tbl = document.getElementById('polarDirTable');
+    if (tbl) {
+      const maxKm = data.overall_max_km || 1;
+      tbl.innerHTML = data.labels.map((lab, i) => {
+        const km = data.max_range_km[i] || 0;
+        const pct = Math.round((km / maxKm) * 100);
+        const isBest = lab === data.best_direction;
+        return `
+          <div class="flex items-center gap-2">
+            <span class="w-9 ${isBest ? 'text-brand-400 font-bold' : 'text-slate-400'}">${lab}</span>
+            <div class="flex-1 h-2 bg-slate-800 rounded overflow-hidden">
+              <div class="h-full ${isBest ? 'bg-brand-500' : 'bg-amber-500/70'}" style="width:${pct}%"></div>
+            </div>
+            <span class="w-14 text-right ${isBest ? 'text-brand-400' : 'text-slate-300'}">${km.toFixed(1)}</span>
+          </div>`;
+      }).join('');
+    }
+
+    drawPolarChart(data);
+  }
+
+  function drawPolarChart(data) {
+    const canvas = document.getElementById('polarChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    if (polarChart) { polarChart.destroy(); polarChart = null; }
+
+    const maxKm = Math.max(...data.max_range_km, 1);
+
+    polarChart = new Chart(ctx, {
+      type: 'radar',
+      data: {
+        labels: data.labels,
+        datasets: [{
+          label: t('polar.range_label'),
+          data: data.max_range_km,
+          fill: true,
+          backgroundColor: 'rgba(234, 179, 8, 0.15)',
+          borderColor: '#eab308',
+          borderWidth: 2,
+          pointBackgroundColor: '#eab308',
+          pointBorderColor: '#1e293b',
+          pointRadius: 4,
+          pointHoverRadius: 6,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, labels: { color: '#cbd5e1' } },
+          tooltip: {
+            callbacks: {
+              label: (c) => {
+                const km = c.raw || 0;
+                const cnt = (data.count && data.count[c.dataIndex]) || 0;
+                return ` ${km.toFixed(1)} km  (${cnt} ${t('polar.points_short')})`;
+              }
+            }
+          }
+        },
+        scales: {
+          r: {
+            beginAtZero: true,
+            suggestedMax: Math.ceil(maxKm * 1.1),
+            angleLines: { color: 'rgba(148,163,184,0.15)' },
+            grid: { color: 'rgba(148,163,184,0.15)' },
+            pointLabels: { color: '#94a3b8', font: { size: 13, weight: 'bold' } },
+            ticks: {
+              color: '#64748b',
+              backdropColor: 'transparent',
+              callback: (v) => v + ' km',
+            }
+          }
+        }
+      }
+    });
+  }
+
   // -------------------- INIT / EVENT BINDING --------------------
   function init() {
     const btn = document.getElementById('historyBtn');
@@ -1197,6 +1342,22 @@ const HorusHistory = (() => {
         setReplaySpeed(speed);
       });
     });
+
+    // Polar plot: izbor broja sektora
+    document.querySelectorAll('.polar-sectors-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        polarSectors = parseInt(btn.dataset.sectors);
+        document.querySelectorAll('.polar-sectors-btn').forEach(b => {
+          const active = b === btn;
+          b.classList.toggle('bg-brand-600', active);
+          b.classList.toggle('text-white', active);
+          b.classList.toggle('hover:bg-slate-700', !active);
+        });
+        renderPolar();
+      });
+    });
+    const polarRefresh = document.getElementById('polarRefreshBtn');
+    if (polarRefresh) polarRefresh.addEventListener('click', () => renderPolar());
 
     // Esc to close (samo kad je history modal otvoren i nije drugi otvoren)
     document.addEventListener('keydown', (e) => {

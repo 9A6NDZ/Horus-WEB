@@ -36,6 +36,9 @@ const App = (() => {
     // Inicijaliziraj collapse/expand sustav za sve panele
     HorusCharts.initCollapseHandlers();
 
+    // Drag & drop preuređivanje panela (miš + touch, localStorage)
+    if (typeof HorusPanelReorder !== 'undefined') HorusPanelReorder.init();
+
     bindEvents();
 
     await loadDecoderConfig();
@@ -469,7 +472,7 @@ const App = (() => {
 
     // ABOUT MODAL
     const aboutBtn = document.getElementById('aboutBtn');
-    if (aboutBtn) aboutBtn.addEventListener('click', openAboutModal);
+    if (aboutBtn) aboutBtn.addEventListener('click', (e) => { e.stopPropagation(); openAboutModal(); });
 
     const closeAboutBtn = document.getElementById('closeAboutBtn');
     if (closeAboutBtn) closeAboutBtn.addEventListener('click', closeAboutModal);

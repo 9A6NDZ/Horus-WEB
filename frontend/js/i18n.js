@@ -47,6 +47,13 @@ const HorusI18n = (() => {
       pl: 'Rozłączono',
     },
 
+    // ===================== PANEL REORDER =====================
+    'reorder.drag_hint': {
+      hr: 'Povuci za promjenu redoslijeda',
+      en: 'Drag to reorder',
+      pl: 'Przeciągnij, aby zmienić kolejność',
+    },
+
     // ===================== LEFT SIDEBAR =====================
     'sidebar.decoder': {
       hr: 'Dekoder',
@@ -350,6 +357,11 @@ const HorusI18n = (() => {
       hr: 'Zadnji paket',
       en: 'Last packet',
       pl: 'Ostatni pakiet',
+    },
+    'telemetry.sondehub_link': {
+      hr: 'Otvori ovu sondu na SondeHub Amateur',
+      en: 'Open this sonde on SondeHub Amateur',
+      pl: 'Otwórz tę sondę na SondeHub Amateur',
     },
     'telemetry.callsign': { hr: 'Callsign', en: 'Callsign',
     pl: 'Callsign' },
@@ -1188,6 +1200,41 @@ const HorusI18n = (() => {
     'history.tab_analyze': { hr: 'Analiza leta', en: 'Flight analysis', pl: 'Analiza lotu' },
     'history.tab_compare': { hr: 'Usporedba', en: 'Comparison', pl: 'Porównanie' },
     'history.tab_replay': { hr: 'Repriza leta', en: 'Flight replay', pl: 'Powtórka lotu' },
+    'history.tab_polar': { hr: 'Polarni dijagram', en: 'Polar plot', pl: 'Wykres polarny' },
+
+    // ===================== POLAR PLOT =====================
+    'polar.title': {
+      hr: 'Otvorenost prijemnika po stranama svijeta',
+      en: 'Receiver coverage by direction',
+      pl: 'Pokrycie odbiornika według kierunku',
+    },
+    'polar.subtitle': {
+      hr: 'Maksimalni domet prijema (km) iz svih spremljenih logova, relativno na lokaciju stanice.',
+      en: 'Maximum reception range (km) across all saved logs, relative to the station location.',
+      pl: 'Maksymalny zasięg odbioru (km) ze wszystkich zapisanych logów, względem lokalizacji stacji.',
+    },
+    'polar.sectors_label': { hr: 'Smjerova:', en: 'Sectors:', pl: 'Sektory:' },
+    'polar.refresh': { hr: 'Osvježi', en: 'Refresh', pl: 'Odśwież' },
+    'polar.range_label': { hr: 'Domet [km]', en: 'Range [km]', pl: 'Zasięg [km]' },
+    'polar.best_dir': { hr: 'Najbolji smjer', en: 'Best direction', pl: 'Najlepszy kierunek' },
+    'polar.max_range': { hr: 'maks. domet', en: 'max range', pl: 'maks. zasięg' },
+    'polar.per_direction': { hr: 'Po smjerovima (maks. km)', en: 'By direction (max km)', pl: 'Według kierunku (maks. km)' },
+    'polar.points': { hr: 'Točaka:', en: 'Points:', pl: 'Punktów:' },
+    'polar.points_short': { hr: 'toč.', en: 'pts', pl: 'pkt' },
+    'polar.files': { hr: 'Logova:', en: 'Logs:', pl: 'Logów:' },
+    'polar.station': { hr: 'Stanica:', en: 'Station:', pl: 'Stacja:' },
+    'polar.empty': { hr: 'Nema podataka za prikaz', en: 'No data to display', pl: 'Brak danych do wyświetlenia' },
+    'polar.empty_hint': {
+      hr: 'Provjerite je li lokacija stanice postavljena i postoje li spremljeni logovi.',
+      en: 'Check that the station location is set and that saved logs exist.',
+      pl: 'Sprawdź, czy ustawiono lokalizację stacji i czy istnieją zapisane logi.',
+    },
+    'polar.no_station': { hr: 'Lokacija stanice nije postavljena', en: 'Station location not set', pl: 'Lokalizacja stacji nie ustawiona' },
+    'polar.no_station_hint': {
+      hr: 'Postavite koordinate stanice u Postavkama da bi se mogao izračunati domet i smjer.',
+      en: 'Set the station coordinates in Settings so range and direction can be computed.',
+      pl: 'Ustaw współrzędne stacji w Ustawieniach, aby obliczyć zasięg i kierunek.',
+    },
 
     'history.search_placeholder': { hr: 'Pretraži po callsignu ili imenu fajla...', en: 'Search by callsign or filename...', pl: 'Szukaj po znaku lub nazwie pliku...' },
     'history.format_all': { hr: 'Svi formati', en: 'All formats', pl: 'Wszystkie formaty' },
