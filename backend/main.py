@@ -32,7 +32,7 @@ logging.basicConfig(
 log = logging.getLogger("horus-web")
 
 # Trenutna verzija programa — ažuriraj ovdje pri svakom releasu
-CURRENT_VERSION = "1.8"
+CURRENT_VERSION = "1.9"
 
 # GitHub raw URL za provjeru nove verzije
 UPDATE_CHECK_URL = "https://raw.githubusercontent.com/9A6NDZ/Horus-WEB/main/version.json"
@@ -1809,6 +1809,144 @@ async def api_history_parse(filename: str):
     except Exception as e:
         log.exception(f"Failed to parse log file {filename}: {e}")
         raise HTTPException(500, f"Greška pri parsiranju: {str(e)}")
+
+
+@app.get("/api/analytics/polar")
+async def api_analytics_polar(sectors: int = 8):
+    """
+    Agregira SVE spremljene logove i računa maksimalni domet prijema (km)
+    po stranama svijeta, relativno na lokaciju stanice.
+
+    Vraća podatke za polarni graf (radar) — pokazuje prema kojoj je strani
+    svijeta prijemnik najviše "otvoren".
+
+    Parametri:
+      sectors: broj smjerova (8 = N/NE/E/SE/S/SW/W/NW, 16 = sa N-NE itd.)
+    """
+    from flight_analyzer import haversine, bearing
+
+    # 1) Dohvati lokaciju stanice (iz analyzera ili station_config.json)
+    station = analyzer.station
+    if not station or not station.get("latitude"):
+        try:
+            cfg_path = Path(__file__).parent / "station_config.json"
+            if cfg_path.exists():
+                data = json.loads(cfg_path.read_text())
+                if data.get("latitude"):
+                    station = {
+                        "callsign": data.get("callsign", ""),
+                        "latitude": float(data.get("latitude", 0)),
+                        "longitude": float(data.get("longitude", 0)),
+                        "altitude": float(data.get("altitude", 0)),
+                    }
+        except Exception as e:
+            log.warning(f"Polar: could not load station config: {e}")
+
+    if not station or not station.get("latitude"):
+        return {
+            "ok": False,
+            "error": "no_station",
+            "message": "Lokacija stanice nije postavljena. Postavite ju u Postavkama.",
+        }
+
+    s_lat = float(station["latitude"])
+    s_lon = float(station["longitude"])
+
+    if sectors not in (8, 16):
+        sectors = 8
+
+    sector_size = 360.0 / sectors
+    # max range (km) po sektoru i broj točaka po sektoru
+    sector_max = [0.0] * sectors
+    sector_count = [0] * sectors
+
+    overall_max_km = 0.0
+    best_dir_idx = -1
+    total_points = 0
+    files_scanned = 0
+
+    # 2) Prođi kroz sve log datoteke direktno (lagano čitanje samo lat/lon)
+    log_dir = telem_logger.log_directory if telem_logger else str(Path(__file__).parent / "logs")
+    p = Path(log_dir)
+    if not p.exists():
+        return {"ok": False, "error": "no_logs", "message": "Direktorij s logovima ne postoji."}
+
+    def _process_point(lat, lon):
+        nonlocal overall_max_km, best_dir_idx, total_points
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except (ValueError, TypeError):
+            return
+        # Preskoči nevažeće GPS fixove
+        if abs(lat) < 0.001 and abs(lon) < 0.001:
+            return
+        if lat == 0 and lon == 0:
+            return
+
+        rng_km = haversine(s_lat, s_lon, lat, lon) / 1000.0
+        if rng_km <= 0:
+            return
+        brg = bearing(s_lat, s_lon, lat, lon)
+        # Sektor: centriran na 0=N. Pomak za pola sektora pa modulo.
+        idx = int(((brg + sector_size / 2.0) % 360.0) / sector_size) % sectors
+
+        total_points += 1
+        sector_count[idx] += 1
+        if rng_km > sector_max[idx]:
+            sector_max[idx] = rng_km
+        if rng_km > overall_max_km:
+            overall_max_km = rng_km
+            best_dir_idx = idx
+
+    import csv as _csv
+    for f in sorted(p.glob("*.*")):
+        if f.suffix not in (".csv", ".json"):
+            continue
+        try:
+            if f.suffix == ".csv":
+                with open(f, "r", newline="", encoding="utf-8", errors="ignore") as fh:
+                    reader = _csv.DictReader(fh)
+                    for row in reader:
+                        _process_point(row.get("latitude"), row.get("longitude"))
+            else:  # .json (jedan objekt po liniji)
+                with open(f, "r", encoding="utf-8", errors="ignore") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except Exception:
+                            continue
+                        _process_point(obj.get("latitude"), obj.get("longitude"))
+            files_scanned += 1
+        except Exception as e:
+            log.warning(f"Polar: greška pri čitanju {f.name}: {e}")
+
+    # 3) Oznake smjerova
+    if sectors == 8:
+        labels = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    else:
+        labels = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+
+    return {
+        "ok": True,
+        "station": {
+            "callsign": station.get("callsign", ""),
+            "latitude": s_lat,
+            "longitude": s_lon,
+        },
+        "sectors": sectors,
+        "labels": labels,
+        "max_range_km": [round(v, 2) for v in sector_max],
+        "count": sector_count,
+        "overall_max_km": round(overall_max_km, 2),
+        "best_direction": labels[best_dir_idx] if best_dir_idx >= 0 else None,
+        "total_points": total_points,
+        "files_scanned": files_scanned,
+    }
 
 
 @app.delete("/api/logging/file/{filename}")

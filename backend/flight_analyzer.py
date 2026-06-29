@@ -705,7 +705,7 @@ class FlightAnalyzer:
 
         # Custom fields (cf_ prefix iz telemloggera)
         for key, val in row.items():
-            if key.startswith("cf_") and val is not None and val != "":
+            if key and key.startswith("cf_") and val is not None and val != "":
                 real_key = key[3:]  # ukloni cf_ prefix
                 try:
                     packet[real_key] = float(val)

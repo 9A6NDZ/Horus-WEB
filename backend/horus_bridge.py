@@ -1312,7 +1312,7 @@ class HorusBridge:
                 user_radio=radio or "",
                 user_antenna=antenna,
                 software_name="Horus-Web",
-                software_version="1.8",
+                software_version="1.9",
             )
             self.sondehub_uploader.inhibit = not enabled
             log.info(f"SondeHub uploader created: callsign={callsign} enabled={enabled}")
@@ -1390,7 +1390,7 @@ class HorusBridge:
                 user_radio=radio or "",
                 user_antenna=antenna,
                 software_name="Horus-Web",
-                software_version="1.8",
+                software_version="1.9",
             )
             self.sondehub_uploader.inhibit = not cfg.get("enabled", False)
 
